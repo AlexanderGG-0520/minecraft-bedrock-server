@@ -9,23 +9,23 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       packages: write
 
     strategy:
       fail-fast: false
-
       matrix:
-        target:
-        - latest
+        include:
+          - target: bedrock-latest
+            tag: latest
+          - target: bedrock-stable
+            tag: stable
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # QEMU for arm64
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -45,11 +45,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # debug
-      - name: Debug tags
+      - name: Debug matrix
         run: |
-          echo "ghcr tag=ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.target }}"
-      - name: Build & Push (${{ matrix.target }})
+          echo "matrix.target=${{ matrix.target }}"
+          echo "matrix.tag=${{ matrix.tag }}"
+          echo "ghcr=ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.tag }}"
+          echo "dh  =alecjp02/minecraft-bedrock-server:${{ matrix.tag }}"
+
+      - name: Build & Push (${{ matrix.tag }})
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -60,8 +63,13 @@ jobs:
           pull: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          tags: |
-            ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.target }}
-            alecjp02/minecraft-bedrock-server:${{ matrix.target }}
+
+          # ← YAMLの複数行が怪しい時があるから、まずはカンマ区切りで確実に通す
+          tags: ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.tag }},alecjp02/minecraft-bedrock-server:${{ matrix.tag }}
+
+          # stable pin（空でもOK。bedrock-latest は無視される）
+          build-args: |
+            BDS_STABLE_VERSION=${{ vars.BDS_STABLE_VERSION }}
+
           sbom: true
           provenance: mode=max
