@@ -18,8 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - bedrock-latest
-          - bedrock-stable
+          - latest
 
     steps:
       - name: Checkout
@@ -48,7 +47,6 @@ jobs:
       # debug
       - name: Debug tags
         run: |
-          echo "matrix.target=${{ matrix.target }}"
           echo "ghcr tag=ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.target }}"
       - name: Build & Push (${{ matrix.target }})
         uses: docker/build-push-action@v6
