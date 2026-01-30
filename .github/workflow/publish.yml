@@ -67,8 +67,8 @@ jobs:
                 cache-to: type=gha,mode=max
 
                 tags: |
-                    ghcr.io/alexandergg-0520/minecraft-server:${{ matrix.target }}
-                    alecjp02/minecraft-server:${{ matrix.target }}
+                    ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.target }}
+                    alecjp02/minecraft-bedrock-server:${{ matrix.target }}
 
                 # Supply chain attestations
                 sbom: true
