@@ -1,0 +1,76 @@
+diff --git a/Dockerfile b/Dockerfile
+index 9c7d2a1..b3d4f61 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,4 +1,4 @@
+-FROM debian:stable-slim AS mcrcon-builder
++FROM debian:stable-slim AS mcrcon-builder
+ 
+ ENV DEBIAN_FRONTEND=noninteractive
+ 
+@@ -18,8 +18,8 @@ RUN set -eux; \
+     make -C /tmp/mcrcon; \
+     install -m 0755 /tmp/mcrcon/mcrcon /usr/local/bin/mcrcon
+ 
+ 
+-FROM debian:stable-slim
++FROM debian:stable-slim AS bedrock-base
+ 
+ ENV DEBIAN_FRONTEND=noninteractive
+ 
+@@ -62,7 +62,26 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+ WORKDIR /data
+ VOLUME ["/data"]
+ 
+-ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/entrypoint.sh"]
++ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/docker-entrypoint.sh"]
+ CMD []
++
++# ============================================================
++# Build targets for GitHub Actions matrix
++# ============================================================
++
++# "stable" = pinned version via build-arg (default: latest)
++FROM bedrock-base AS bedrock-stable
++ARG BDS_STABLE_VERSION=latest
++ENV VERSION=${BDS_STABLE_VERSION}
++
++# "latest" = always latest (runtime downloads latest zip)
++FROM bedrock-base AS bedrock-latest
++ENV VERSION=latest
+diff --git a/.github/workflows/publish.yml b/.github/workflows/publish.yml
+index 0c0c0c0..d6d6d6d 100644
+--- a/.github/workflows/publish.yml
++++ b/.github/workflows/publish.yml
+@@ -1,4 +1,4 @@
+-name: Publish Docker Images to GHCR
++name: Publish Docker Images to GHCR (Bedrock)
+ 
+ on:
+     workflow_dispatch:
+@@ -45,6 +45,10 @@ jobs:
+             with:
+                 context: .
+                 file: ./Dockerfile
+                 target: ${{ matrix.target }}
+                 push: true
++                platforms: linux/amd64,linux/arm64
++
++                # bedrock-stable の pin 用（GitHub Actions Variables に BDS_STABLE_VERSION を置ける）
++                build-args: |
++                    BDS_STABLE_VERSION=${{ vars.BDS_STABLE_VERSION }}
+ 
+                 # Update base image to latest (helps reduce CVEs)
+                 pull: true
+@@ -56,8 +60,8 @@ jobs:
+                 cache-to: type=gha,mode=max
+ 
+                 tags: |
+-                    ghcr.io/alexandergg-0520/minecraft-server:${{ matrix.target }}
+-                    alecjp02/minecraft-server:${{ matrix.target }}
++                    ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.target }}
++                    alecjp02/minecraft-bedrock-server:${{ matrix.target }}
+ 
+                 # Supply chain attestations
+                 sbom: true
+                 provenance: mode=max

@@ -1,0 +1,72 @@
+diff --git a/.github/workflows/publish.yml b/.github/workflows/publish.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/publish.yml
++++ b/.github/workflows/publish.yml
+@@ -1,78 +1,96 @@
+name: Publish Docker Images to GHCR (Bedrock)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - bedrock-latest
+          - bedrock-stable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute image tags
+        id: vars
+        shell: bash
+        run: |
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push (${{ matrix.target }})
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: ${{ matrix.target }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          pull: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/alexandergg-0520/minecraft-bedrock-server:${{ matrix.target }}
+            ghcr.io/alexandergg-0520/minecraft-bedrock-server:sha-${{ steps.vars.outputs.sha_short }}-${{ matrix.target }}
+            alecjp02/minecraft-bedrock-server:${{ matrix.target }}
+            alecjp02/minecraft-bedrock-server:sha-${{ steps.vars.outputs.sha_short }}-${{ matrix.target }}
+          sbom: true
+          provenance: mode=max
