@@ -87,6 +87,7 @@ RUN set -eux; \
     ( cd /tmp && sha256sum -c "${MC_FILENAME}.sha256sum" ); \
     mv "/tmp/${MC_FILENAME}" /usr/local/bin/mc; \
     chmod 0755 /usr/local/bin/mc; \
+    rm -f "/tmp/${MC_FILENAME}" "/tmp/${MC_FILENAME}.sha256sum"; \
     /usr/local/bin/mc --version
 
 # RCON client
