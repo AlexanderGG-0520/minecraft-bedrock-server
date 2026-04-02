@@ -82,8 +82,8 @@ RUN set -eux; \
     MC_BASE_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}"; \
     curl -fsSL --retry 3 "${MC_BASE_URL}/mc" -o /usr/local/bin/mc; \
     curl -fsSL --retry 3 "${MC_BASE_URL}/mc.sha256sum" -o /tmp/mc.sha256sum; \
-    expected="$(cut -d' ' -f1 /tmp/mc.sha256sum)"; \
-    actual="$(sha256sum /usr/local/bin/mc | cut -d' ' -f1)"; \
+    expected="$(cat /tmp/mc.sha256sum)"; expected="${expected%% *}"; \
+    actual="$(sha256sum /usr/local/bin/mc)"; actual="${actual%% *}"; \
     test "${actual}" = "${expected}"; \
     chmod 0755 /usr/local/bin/mc; \
     rm -f /tmp/mc.sha256sum; \
