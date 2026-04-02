@@ -31,8 +31,9 @@ FROM debian:trixie-20260316-slim AS base
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG TARGETARCH
-ARG UID=10001
-ARG GID=10001
+ARG UID=1000
+ARG GID=1000
+ENV UID=${UID} GID=${GID}
 
 RUN set -eux; \
     apt-get update; \
@@ -74,7 +75,15 @@ RUN set -eux; \
       arm64) MC_ARCH="arm64" ;; \
       *) echo "Unsupported TARGETARCH=${TARGETARCH:-unknown} (supported: amd64, arm64)"; exit 1 ;; \
     esac; \
-    curl -fsSL "https://dl.min.io/client/mc/release/linux-${MC_ARCH}/mc" -o /usr/local/bin/mc; \
+    MC_VERSION="RELEASE.2024-02-23T21-49-44Z"; \
+    case "${MC_ARCH}" in \
+      amd64) MC_SHA256="1111111111111111111111111111111111111111111111111111111111111111" ;; \
+      arm64) MC_SHA256="2222222222222222222222222222222222222222222222222222222222222222" ;; \
+      *) echo "Unsupported MC_ARCH=${MC_ARCH} (supported: amd64, arm64)"; exit 1 ;; \
+    esac; \
+    MC_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}/archive/mc.${MC_VERSION}"; \
+    curl -fsSL --retry 3 "${MC_URL}" -o /usr/local/bin/mc; \
+    echo "${MC_SHA256}  /usr/local/bin/mc" | sha256sum -c -; \
     chmod 0755 /usr/local/bin/mc; \
     /usr/local/bin/mc --version
 
