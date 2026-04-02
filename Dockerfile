@@ -59,14 +59,18 @@ RUN set -eux; \
 
 # Runtime user/group
 RUN set -eux; \
-    groupadd --gid "${GID}" minecraft; \
-    useradd \
-      --uid "${UID}" \
-      --gid "${GID}" \
-      --home-dir /data \
-      --create-home \
-      --shell /usr/sbin/nologin \
-      minecraft
+    if [ "${GID}" != "0" ] && ! getent group "${GID}" > /dev/null; then \
+      groupadd --gid "${GID}" minecraft; \
+    fi; \
+    if [ "${UID}" != "0" ] && ! getent passwd "${UID}" > /dev/null; then \
+      useradd \
+        --uid "${UID}" \
+        --gid "${GID}" \
+        --home-dir /data \
+        --create-home \
+        --shell /usr/sbin/nologin \
+        minecraft; \
+    fi
 
 # MinIO client (mc) for S3 sync
 RUN set -eux; \
