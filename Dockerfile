@@ -79,15 +79,14 @@ RUN set -eux; \
       arm64) MC_ARCH="arm64" ;; \
       *) echo "Unsupported TARGETARCH=${TARGETARCH:-unknown} (supported: amd64, arm64)"; exit 1 ;; \
     esac; \
-    MC_VERSION="RELEASE.2024-02-23T21-49-44Z"; \
-    MC_FILENAME="mc.${MC_VERSION}"; \
-    MC_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}/archive/${MC_FILENAME}"; \
-    curl -fsSL --retry 3 "${MC_URL}" -o "/tmp/${MC_FILENAME}"; \
-    curl -fsSL --retry 3 "${MC_URL}.sha256sum" -o "/tmp/${MC_FILENAME}.sha256sum"; \
-    ( cd /tmp && sha256sum -c "${MC_FILENAME}.sha256sum" ); \
-    mv "/tmp/${MC_FILENAME}" /usr/local/bin/mc; \
+    MC_BASE_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}"; \
+    curl -fsSL --retry 3 "${MC_BASE_URL}/mc" -o /usr/local/bin/mc; \
+    curl -fsSL --retry 3 "${MC_BASE_URL}/mc.sha256sum" -o /tmp/mc.sha256sum; \
+    expected="$(cut -d' ' -f1 /tmp/mc.sha256sum)"; \
+    actual="$(sha256sum /usr/local/bin/mc | cut -d' ' -f1)"; \
+    test "${actual}" = "${expected}"; \
     chmod 0755 /usr/local/bin/mc; \
-    rm -f "/tmp/${MC_FILENAME}" "/tmp/${MC_FILENAME}.sha256sum"; \
+    rm -f /tmp/mc.sha256sum; \
     /usr/local/bin/mc --version
 
 # RCON client
