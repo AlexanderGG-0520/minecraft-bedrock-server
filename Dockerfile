@@ -1,8 +1,5 @@
 # syntax=docker/dockerfile:1
 
-# ============================================================
-# Build mcrcon
-# ============================================================
 FROM debian:trixie-20260316-slim AS mcrcon-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -23,17 +20,12 @@ RUN set -eux; \
     install -m 0755 /tmp/mcrcon/mcrcon /usr/local/bin/mcrcon; \
     strip /usr/local/bin/mcrcon || true
 
-# ============================================================
-# Runtime base
-# ============================================================
+
 FROM debian:trixie-20260316-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG TARGETARCH
-ARG UID=1000
-ARG GID=1000
-ENV UID=${UID} GID=${GID}
 
 RUN set -eux; \
     apt-get update; \
@@ -57,22 +49,16 @@ RUN set -eux; \
     ; \
     rm -rf /var/lib/apt/lists/*
 
-# Runtime user/group
 RUN set -eux; \
-    if [ "${GID}" != "0" ] && ! getent group "${GID}" > /dev/null; then \
-      groupadd --gid "${GID}" minecraft; \
-    fi; \
-    if [ "${UID}" != "0" ] && ! getent passwd "${UID}" > /dev/null; then \
-      useradd \
-        --uid "${UID}" \
-        --gid "${GID}" \
-        --home-dir /data \
-        --create-home \
-        --shell /usr/sbin/nologin \
-        minecraft; \
-    fi
+    groupadd --gid 1000 minecraft; \
+    useradd \
+      --uid 1000 \
+      --gid 1000 \
+      --home-dir /data \
+      --create-home \
+      --shell /usr/sbin/nologin \
+      minecraft
 
-# MinIO client (mc) for S3 sync
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
       amd64) MC_ARCH="amd64" ;; \
@@ -82,17 +68,15 @@ RUN set -eux; \
     MC_BASE_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}"; \
     curl -fsSL --retry 3 "${MC_BASE_URL}/mc" -o /usr/local/bin/mc; \
     curl -fsSL --retry 3 "${MC_BASE_URL}/mc.sha256sum" -o /tmp/mc.sha256sum; \
-    expected="$(cat /tmp/mc.sha256sum)"; expected="${expected%% *}"; \
-    actual="$(sha256sum /usr/local/bin/mc)"; actual="${actual%% *}"; \
+    expected="$(cut -d' ' -f1 /tmp/mc.sha256sum)"; \
+    actual="$(sha256sum /usr/local/bin/mc | cut -d' ' -f1)"; \
     test "${actual}" = "${expected}"; \
     chmod 0755 /usr/local/bin/mc; \
     rm -f /tmp/mc.sha256sum; \
     /usr/local/bin/mc --version
 
-# RCON client
 COPY --from=mcrcon-builder /usr/local/bin/mcrcon /usr/local/bin/mcrcon
 
-# Entrypoint
 COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
@@ -101,10 +85,8 @@ VOLUME ["/data"]
 
 ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/docker-entrypoint.sh"]
 CMD []
+USER minecraft
 
-# ============================================================
-# Targets for GitHub Actions buildx --target
-# ============================================================
 FROM base AS bedrock-latest
 ENV BDS_CHANNEL=latest
 
