@@ -1,31 +1,15 @@
-# ============================================================
-# MC Builder for mcrcon
-# ============================================================
-ARG MC_RELEASE=RELEASE.2025-08-13T08-35-41Z
-ARG GO_VERSION=1.24.12
-
-FROM golang:${GO_VERSION}-bookworm AS mc-builder
-ARG MC_RELEASE
-
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-RUN git clone --depth 1 --branch ${MC_RELEASE} https://github.com/minio/mc.git .
-
-# x/crypto CVE
-RUN go get golang.org/x/crypto@v0.43.0 && go mod tidy
-
-# Build static mc binary
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/mc .
+# syntax=docker/dockerfile:1
 
 # ============================================================
-FROM debian:stable-slim AS mcrcon-builder
+# Build mcrcon
+# ============================================================
+FROM debian:trixie-20260316-slim AS mcrcon-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends \
       ca-certificates \
       git \
@@ -36,17 +20,23 @@ RUN set -eux; \
 RUN set -eux; \
     git clone --depth 1 https://github.com/Tiiffi/mcrcon /tmp/mcrcon; \
     make -C /tmp/mcrcon; \
-    install -m 0755 /tmp/mcrcon/mcrcon /usr/local/bin/mcrcon
+    install -m 0755 /tmp/mcrcon/mcrcon /usr/local/bin/mcrcon; \
+    strip /usr/local/bin/mcrcon || true
 
-
-FROM debian:stable-slim AS base
+# ============================================================
+# Runtime base
+# ============================================================
+FROM debian:trixie-20260316-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# NOTE:
-# - Do NOT EXPOSE ports here (container/internal port is env-driven; user maps explicitly).
+ARG TARGETARCH
+ARG UID=10001
+ARG GID=10001
+
 RUN set -eux; \
     apt-get update; \
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends \
       bash \
       ca-certificates \
@@ -57,39 +47,48 @@ RUN set -eux; \
       tini \
       gosu \
       procps \
+      libc6 \
       libstdc++6 \
       libgcc-s1 \
       libcurl4 \
       libssl3 \
+      tzdata \
     ; \
     rm -rf /var/lib/apt/lists/*
 
+# Runtime user/group
+RUN set -eux; \
+    groupadd --gid "${GID}" minecraft; \
+    useradd \
+      --uid "${UID}" \
+      --gid "${GID}" \
+      --home-dir /data \
+      --create-home \
+      --shell /usr/sbin/nologin \
+      minecraft
+
 # MinIO client (mc) for S3 sync
-ARG TARGETARCH
 RUN set -eux; \
     case "${TARGETARCH:-amd64}" in \
       amd64) MC_ARCH="amd64" ;; \
       arm64) MC_ARCH="arm64" ;; \
-      *) echo "Unsupported TARGETARCH=${TARGETARCH} (use amd64/arm64)"; exit 1 ;; \
+      *) echo "Unsupported TARGETARCH=${TARGETARCH:-unknown} (supported: amd64, arm64)"; exit 1 ;; \
     esac; \
     curl -fsSL "https://dl.min.io/client/mc/release/linux-${MC_ARCH}/mc" -o /usr/local/bin/mc; \
-    chmod +x /usr/local/bin/mc; \
+    chmod 0755 /usr/local/bin/mc; \
     /usr/local/bin/mc --version
 
 # RCON client
 COPY --from=mcrcon-builder /usr/local/bin/mcrcon /usr/local/bin/mcrcon
 
 # Entrypoint
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
 WORKDIR /data
 VOLUME ["/data"]
 
-ARG UID=10001
-ARG GID=10001
-
-ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/docker-entrypoint.sh"]
 CMD []
 
 # ============================================================
