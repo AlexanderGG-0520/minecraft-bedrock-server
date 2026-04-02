@@ -75,9 +75,10 @@ RUN set -eux; \
       *) echo "Unsupported TARGETARCH=${TARGETARCH:-unknown} (supported: amd64, arm64)"; exit 1 ;; \
     esac; \
     MC_BASE_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}"; \
-    curl -fsSL --retry 3 "${MC_BASE_URL}/mc" -o /usr/local/bin/mc; \
+    curl -fsSL --retry 3 "${MC_BASE_URL}/mc" -o /tmp/mc; \
     curl -fsSL --retry 3 "${MC_BASE_URL}/mc.sha256sum" -o /tmp/mc.sha256sum; \
     ( cd /tmp && sha256sum -c mc.sha256sum ); \
+    mv /tmp/mc /usr/local/bin/mc; \
     chmod 0755 /usr/local/bin/mc; \
     rm -f /tmp/mc.sha256sum; \
     /usr/local/bin/mc --version
