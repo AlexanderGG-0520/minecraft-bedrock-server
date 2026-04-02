@@ -76,14 +76,12 @@ RUN set -eux; \
       *) echo "Unsupported TARGETARCH=${TARGETARCH:-unknown} (supported: amd64, arm64)"; exit 1 ;; \
     esac; \
     MC_VERSION="RELEASE.2024-02-23T21-49-44Z"; \
-    case "${MC_ARCH}" in \
-      amd64) MC_SHA256="1111111111111111111111111111111111111111111111111111111111111111" ;; \
-      arm64) MC_SHA256="2222222222222222222222222222222222222222222222222222222222222222" ;; \
-      *) echo "Unsupported MC_ARCH=${MC_ARCH} (supported: amd64, arm64)"; exit 1 ;; \
-    esac; \
-    MC_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}/archive/mc.${MC_VERSION}"; \
-    curl -fsSL --retry 3 "${MC_URL}" -o /usr/local/bin/mc; \
-    echo "${MC_SHA256}  /usr/local/bin/mc" | sha256sum -c -; \
+    MC_FILENAME="mc.${MC_VERSION}"; \
+    MC_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}/archive/${MC_FILENAME}"; \
+    curl -fsSL --retry 3 "${MC_URL}" -o "/tmp/${MC_FILENAME}"; \
+    curl -fsSL --retry 3 "${MC_URL}.sha256sum" -o "/tmp/${MC_FILENAME}.sha256sum"; \
+    ( cd /tmp && sha256sum -c "${MC_FILENAME}.sha256sum" ); \
+    mv "/tmp/${MC_FILENAME}" /usr/local/bin/mc; \
     chmod 0755 /usr/local/bin/mc; \
     /usr/local/bin/mc --version
 
