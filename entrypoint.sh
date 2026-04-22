@@ -565,7 +565,7 @@ case "${1:-}" in
     ;;
   healthcheck)
     [[ -f "${DATA_DIR}/.ready" ]] || die "ready file is missing"
-    pgrep -f '/bedrock_server$' >/dev/null || die "bedrock_server process is not running"
+    pgrep -x 'bedrock_server' >/dev/null || die "bedrock_server process is not running"
     exit 0
     ;;
   run)
