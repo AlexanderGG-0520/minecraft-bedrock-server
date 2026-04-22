@@ -8,7 +8,7 @@ A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
 
 - **Resolved conflict with Bash's reserved `UID` variable**
   - Using `UID` directly can be unreliable because Bash treats it as a readonly special variable.
-  - Runtime identity is now configured via `RUN_UID` / `RUN_GID`, with compatibility fallback to `UID` / `GID` when needed.
+  - Runtime identity is now configured via `RUN_UID` / `RUN_GID`.
 
 - **Made `BDS_CHANNEL=stable` effective**
   - `entrypoint.sh` now interprets `BDS_CHANNEL` and `BDS_STABLE_VERSION`, so the `bedrock-stable` target can reliably install a pinned version.
@@ -31,7 +31,7 @@ A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
 - `RUN_UID` (recommended: set explicitly, for example `1000`)
 - `RUN_GID` (recommended: set explicitly, for example `1000`)
 
-> Current behavior: when `RUN_UID` / `RUN_GID` are unset, the entrypoint falls back to `UID` / `GID` when available. In practice, this means the effective runtime user may match the current process user (for example `0` when the container starts as root), so set `RUN_UID` and `RUN_GID` explicitly if you require `1000:1000`.
+> Current behavior: when `RUN_UID` / `RUN_GID` are unset, the entrypoint defaults to `1000:1000`. Set `RUN_UID` and `RUN_GID` explicitly if you need a different runtime user or group.
 
 ### Bedrock version selection
 
