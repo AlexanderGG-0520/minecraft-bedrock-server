@@ -30,8 +30,8 @@ validate_port() {
 # Defaults
 # ============================================================
 : "${DATA_DIR:=/data}"
-: "${RUN_UID:=${UID:-1000}}"
-: "${RUN_GID:=${GID:-1000}}"
+: "${RUN_UID:=1000}"
+: "${RUN_GID:=1000}"
 
 # Required
 : "${EULA:=}"
