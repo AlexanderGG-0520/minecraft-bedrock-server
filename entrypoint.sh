@@ -30,8 +30,10 @@ validate_port() {
 # Defaults
 # ============================================================
 : "${DATA_DIR:=/data}"
-: "${RUN_UID:=${UID:-1000}}"
-: "${RUN_GID:=${GID:-1000}}"
+_env_uid="$(printenv UID 2>/dev/null || true)"
+_env_gid="$(printenv GID 2>/dev/null || true)"
+: "${RUN_UID:=${_env_uid:-1000}}"
+: "${RUN_GID:=${_env_gid:-1000}}"
 
 # Required
 : "${EULA:=}"
