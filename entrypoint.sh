@@ -30,6 +30,8 @@ validate_port() {
 # Defaults
 # ============================================================
 : "${DATA_DIR:=/data}"
+RUN_UID="${RUN_UID:-$(printenv UID || true)}"
+RUN_GID="${RUN_GID:-$(printenv GID || true)}"
 : "${RUN_UID:=1000}"
 : "${RUN_GID:=1000}"
 
