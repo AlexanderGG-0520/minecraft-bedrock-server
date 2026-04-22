@@ -1,4 +1,12 @@
-# minecraft-bedrock-server
+# Minecraft Bedrock Server (Performance-first)
+
+![Docker Build](https://img.shields.io/github/actions/workflow/status/AlexanderGG-0520/minecraft-bedrock-server/publish.yml?branch=main)
+[![Docker Pulls](https://img.shields.io/docker/pulls/alecjp02/minecraft-bedrock-server.svg?logo=docker)](https://hub.docker.com/r/alecjp02/minecraft-bedrock-server/)
+[![Docker Stars](https://img.shields.io/docker/stars/alecjp02/minecraft-bedrock-server.svg?logo=docker)](https://hub.docker.com/r/alecjp02/minecraft-bedrock-server/)
+[![GitHub Issues](https://img.shields.io/github/issues-raw/alexandergg-0520/minecraft-bedrock-server.svg)](https://github.com/alexandergg-0520/minecraft-bedrock-server/issues)
+![GHCR](https://img.shields.io/badge/GHCR-ghcr.io%2Falexandergg--0520%2Fminecraft--bedrock--server-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Kubernetes](https://img.shields.io/badge/kubernetes-ready-blue)
 
 A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
 

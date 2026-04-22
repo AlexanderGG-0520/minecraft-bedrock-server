@@ -255,6 +255,12 @@ resolve_bds_download_url() {
     return 0
   fi
 
+  if [[ "${BDS_CHANNEL}" == "stable" ]]; then
+    [[ -n "${BDS_STABLE_VERSION}" ]] || die "BDS_CHANNEL=stable requires BDS_STABLE_VERSION"
+    echo "https://minecraft.azureedge.net/bin-linux/bedrock-server-${BDS_STABLE_VERSION}.zip"
+    return 0
+  fi
+
   if [[ "${VERSION}" != "latest" ]]; then
     echo "https://minecraft.azureedge.net/bin-linux/bedrock-server-${VERSION}.zip"
     return 0
