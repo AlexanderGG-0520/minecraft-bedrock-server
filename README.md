@@ -28,10 +28,10 @@ A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
 
 ### Runtime user
 
-- `RUN_UID` (default: `1000`)
-- `RUN_GID` (default: `1000`)
+- `RUN_UID` (recommended: set explicitly, for example `1000`)
+- `RUN_GID` (recommended: set explicitly, for example `1000`)
 
-> For backward compatibility, `RUN_UID` falls back to `UID`, and `RUN_GID` falls back to `GID` when unset.
+> Current behavior: when `RUN_UID` / `RUN_GID` are unset, the entrypoint falls back to `UID` / `GID` when available. In practice, this means the effective runtime user may match the current process user (for example `0` when the container starts as root), so set `RUN_UID` and `RUN_GID` explicitly if you require `1000:1000`.
 
 ### Bedrock version selection
 
