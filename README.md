@@ -29,10 +29,11 @@ Kubernetes での運用を前提にした、Minecraft Bedrock Dedicated Server �
 
 ### 実行ユーザー
 
-- `RUN_UID` (default: `1000`)
-- `RUN_GID` (default: `1000`)
+- `RUN_UID` (default: 実行時のユーザー ID。Bash 環境では `$UID` に従います)
+- `RUN_GID` (default: 実行時のグループ ID)
 
-> 互換性のため、`RUN_UID` 未指定時は `UID`、`RUN_GID` 未指定時は `GID` を参照します。
+> 注意: `UID` は Bash の予約済み readonly 変数のため、環境変数 `UID` を指定しても互換フォールバックとしては利用されません。
+> 実行ユーザー/グループを明示したい場合は、`RUN_UID` / `RUN_GID` を指定してください。
 
 ### Bedrock バージョン制御
 
