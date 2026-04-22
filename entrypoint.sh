@@ -30,8 +30,10 @@ validate_port() {
 # Defaults
 # ============================================================
 : "${DATA_DIR:=/data}"
-: "${UID:=1000}"
-: "${GID:=1000}"
+RUN_UID="${RUN_UID:-$(printenv UID || true)}"
+RUN_GID="${RUN_GID:-$(printenv GID || true)}"
+: "${RUN_UID:=1000}"
+: "${RUN_GID:=1000}"
 
 # Required
 : "${EULA:=}"
@@ -41,6 +43,8 @@ validate_port() {
 # - or explicit like "1.21.130.4"
 : "${VERSION:=latest}"
 : "${BDS_DOWNLOAD_URL:=}"
+: "${BDS_CHANNEL:=latest}"
+: "${BDS_STABLE_VERSION:=}"
 
 # Runtime
 : "${READY_DELAY:=5}"
@@ -132,8 +136,8 @@ preflight() {
   [[ -n "${EULA:-}" ]] || die "EULA is not set (set EULA=true)"
   [[ "${EULA}" == "true" ]] || die "EULA must be true"
 
-  [[ "${UID}" =~ ^[0-9]+$ ]] || die "UID must be numeric"
-  [[ "${GID}" =~ ^[0-9]+$ ]] || die "GID must be numeric"
+  [[ "${RUN_UID}" =~ ^[0-9]+$ ]] || die "RUN_UID must be numeric"
+  [[ "${RUN_GID}" =~ ^[0-9]+$ ]] || die "RUN_GID must be numeric"
 
   # RCON default enabled -> password required
   if is_true "${ENABLE_RCON}"; then
@@ -250,6 +254,12 @@ activate_resourcepacks() {
 resolve_bds_download_url() {
   if [[ -n "${BDS_DOWNLOAD_URL}" ]]; then
     echo "${BDS_DOWNLOAD_URL}"
+    return 0
+  fi
+
+  if [[ "${BDS_CHANNEL}" == "stable" ]]; then
+    [[ -n "${BDS_STABLE_VERSION}" ]] || die "BDS_CHANNEL=stable requires BDS_STABLE_VERSION"
+    echo "https://minecraft.azureedge.net/bin-linux/bedrock-server-${BDS_STABLE_VERSION}.zip"
     return 0
   fi
 
@@ -505,9 +515,9 @@ run_server() {
 fix_ownership_if_needed() {
   if [[ "$(id -u)" -ne 0 ]]; then return 0; fi
   if ! is_true "${FIX_OWNERSHIP}"; then return 0; fi
-  if [[ "${UID}" == "0" && "${GID}" == "0" ]]; then return 0; fi
-  log INFO "Fixing ownership: ${DATA_DIR} -> ${UID}:${GID}"
-  chown -R "${UID}:${GID}" "${DATA_DIR}" || die "chown failed (set FIX_OWNERSHIP=false to skip)"
+  if [[ "${RUN_UID}" == "0" && "${RUN_GID}" == "0" ]]; then return 0; fi
+  log INFO "Fixing ownership: ${DATA_DIR} -> ${RUN_UID}:${RUN_GID}"
+  chown -R "${RUN_UID}:${RUN_GID}" "${DATA_DIR}" || die "chown failed (set FIX_OWNERSHIP=false to skip)"
 }
 
 install() {
@@ -531,9 +541,9 @@ runtime() {
   sleep "${READY_DELAY}" || true
 
   # drop privileges if root
-  if [[ "$(id -u)" -eq 0 && ( "${UID}" != "0" || "${GID}" != "0" ) ]]; then
-    log INFO "Dropping privileges to ${UID}:${GID}"
-    exec gosu "${UID}:${GID}" /usr/local/bin/docker-entrypoint.sh run
+  if [[ "$(id -u)" -eq 0 && ( "${RUN_UID}" != "0" || "${RUN_GID}" != "0" ) ]]; then
+    log INFO "Dropping privileges to ${RUN_UID}:${RUN_GID}"
+    exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh run
   fi
   run_server
 }
@@ -551,6 +561,11 @@ case "${1:-}" in
     ;;
   rcon-stop)
     rcon_stop_once || true
+    exit 0
+    ;;
+  healthcheck)
+    [[ -f "${DATA_DIR}/.ready" ]] || die "ready file is missing"
+    pgrep -x bedrock_server >/dev/null || die "bedrock_server process is not running"
     exit 0
     ;;
   run)
