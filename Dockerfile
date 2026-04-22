@@ -82,7 +82,7 @@ RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
 
 WORKDIR /data
 VOLUME ["/data"]
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
   CMD ["/usr/local/bin/docker-entrypoint.sh","healthcheck"]
 
 ENTRYPOINT ["/usr/bin/tini","-g","--","/usr/local/bin/docker-entrypoint.sh"]
