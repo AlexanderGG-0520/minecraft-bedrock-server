@@ -16,7 +16,7 @@ A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
 
 - **Resolved conflict with Bash's reserved `UID` variable**
   - Using `UID` directly can be unreliable because Bash treats it as a readonly special variable.
-  - Runtime identity is now configured via `RUN_UID` / `RUN_GID`.
+  - Runtime identity is now configured via `RUN_UID` / `RUN_GID`, with compatibility fallback to `UID` / `GID` when needed.
 
 - **Made `BDS_CHANNEL=stable` effective**
   - `entrypoint.sh` now interprets `BDS_CHANNEL` and `BDS_STABLE_VERSION`, so the `bedrock-stable` target can reliably install a pinned version.
@@ -36,10 +36,10 @@ A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
 
 ### Runtime user
 
-- `RUN_UID` (recommended: set explicitly, for example `1000`)
-- `RUN_GID` (recommended: set explicitly, for example `1000`)
+- `RUN_UID` (default: `1000`)
+- `RUN_GID` (default: `1000`)
 
-> Current behavior: when `RUN_UID` / `RUN_GID` are unset, the entrypoint defaults to `1000:1000`. Set `RUN_UID` and `RUN_GID` explicitly if you need a different runtime user or group.
+> For backward compatibility, `RUN_UID` falls back to `UID`, and `RUN_GID` falls back to `GID` when unset.
 
 ### Bedrock version selection
 
@@ -50,6 +50,14 @@ A Kubernetes-friendly container runtime for Minecraft Bedrock Dedicated Server.
   - If set to `stable`, you must also set `BDS_STABLE_VERSION`
 - `BDS_STABLE_VERSION`
 - `BDS_DOWNLOAD_URL` (highest priority override when set)
+
+### S3 integration
+
+- `S3_ENDPOINT`
+- `S3_ACCESS_KEY`
+- `S3_SECRET_KEY`
+
+> This image uses the MinIO `mc` client for S3-compatible object storage operations.
 
 ## Usage examples
 

@@ -30,10 +30,14 @@ validate_port() {
 # Defaults
 # ============================================================
 : "${DATA_DIR:=/data}"
-RUN_UID="${RUN_UID:-$(printenv UID || true)}"
-RUN_GID="${RUN_GID:-$(printenv GID || true)}"
-: "${RUN_UID:=1000}"
-: "${RUN_GID:=1000}"
+if [[ -z "${RUN_UID:-}" ]]; then
+  RUN_UID="$(printenv UID 2>/dev/null || true)"
+  : "${RUN_UID:=1000}"
+fi
+if [[ -z "${RUN_GID:-}" ]]; then
+  RUN_GID="$(printenv GID 2>/dev/null || true)"
+  : "${RUN_GID:=1000}"
+fi
 
 # Required
 : "${EULA:=}"
@@ -215,9 +219,9 @@ install_behaviorpacks() {
     return 0
   fi
 
+  log INFO "Syncing behavior packs from s3://${BEHAVIORPACKS_S3_BUCKET}/${BEHAVIORPACKS_S3_PREFIX}"
   local remove=""
   is_true "${BEHAVIORPACKS_REMOVE_EXTRA}" && remove="--remove"
-  log INFO "Syncing behavior packs from s3://${BEHAVIORPACKS_S3_BUCKET}/${BEHAVIORPACKS_S3_PREFIX}"
   mc mirror --overwrite ${remove} "s3/${BEHAVIORPACKS_S3_BUCKET}/${BEHAVIORPACKS_S3_PREFIX}" "$dst" \
     || die "Failed to sync behavior packs"
 }
@@ -240,9 +244,9 @@ install_resourcepacks() {
     return 0
   fi
 
+  log INFO "Syncing resource packs from s3://${RESOURCEPACKS_S3_BUCKET}/${RESOURCEPACKS_S3_PREFIX}"
   local remove=""
   is_true "${RESOURCEPACKS_REMOVE_EXTRA}" && remove="--remove"
-  log INFO "Syncing resource packs from s3://${RESOURCEPACKS_S3_BUCKET}/${RESOURCEPACKS_S3_PREFIX}"
   mc mirror --overwrite ${remove} "s3/${RESOURCEPACKS_S3_BUCKET}/${RESOURCEPACKS_S3_PREFIX}" "$dst" \
     || die "Failed to sync resource packs"
 }
@@ -565,7 +569,7 @@ case "${1:-}" in
     ;;
   healthcheck)
     [[ -f "${DATA_DIR}/.ready" ]] || die "ready file is missing"
-    pgrep -x bedrock_server >/dev/null || die "bedrock_server process is not running"
+    pgrep -f '/bedrock_server$' >/dev/null || die "bedrock_server process is not running"
     exit 0
     ;;
   run)
