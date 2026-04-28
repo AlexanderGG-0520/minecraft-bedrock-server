@@ -69,6 +69,12 @@ jobs:
 
           # stable pin（空でもOK。bedrock-latest は無視される）
           build-args: |
+            GO_VERSION=1.25.9
+            MC_VERSION=RELEASE.2025-08-13T08-35-41Z
+            GOSU_VERSION=1.19
+            GRPC_VERSION=1.79.3
+            X_CRYPTO_VERSION=0.43.0
+            PROMETHEUS_VERSION=0.311.2-0.20260410083055-07c6232d159b
             BDS_STABLE_VERSION=${{ vars.BDS_STABLE_VERSION }}
 
           sbom: true

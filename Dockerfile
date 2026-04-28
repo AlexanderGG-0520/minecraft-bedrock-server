@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
 
+ARG GO_VERSION=1.25.9
+
 FROM debian:trixie-20260316-slim AS mcrcon-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,11 +23,71 @@ RUN set -eux; \
     strip /usr/local/bin/mcrcon || true
 
 
-FROM debian:trixie-20260316-slim AS base
+FROM golang:${GO_VERSION}-trixie AS mc-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG TARGETARCH
+ARG MC_VERSION=RELEASE.2025-08-13T08-35-41Z
+ARG GRPC_VERSION=1.79.3
+ARG X_CRYPTO_VERSION=0.43.0
+ARG PROMETHEUS_VERSION=0.311.2-0.20260410083055-07c6232d159b
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get upgrade -y; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    go version; \
+    go env GOVERSION; \
+    git clone --depth 1 --branch "${MC_VERSION}" https://github.com/minio/mc /tmp/mc; \
+    cd /tmp/mc; \
+    go mod edit \
+      -require="google.golang.org/grpc@v${GRPC_VERSION}" \
+      -require="golang.org/x/crypto@v${X_CRYPTO_VERSION}" \
+      -require="github.com/prometheus/prometheus@v${PROMETHEUS_VERSION}"; \
+    go mod tidy; \
+    go list -m google.golang.org/grpc golang.org/x/crypto github.com/prometheus/prometheus; \
+    CGO_ENABLED=0 go build -trimpath -ldflags "$(go run buildscripts/gen-ldflags.go) -s -w" -o /usr/local/bin/mc .; \
+    go version -m /usr/local/bin/mc; \
+    /usr/local/bin/mc --version; \
+    /usr/local/bin/mc --help >/dev/null
+
+
+FROM golang:${GO_VERSION}-trixie AS gosu-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ARG GOSU_VERSION=1.19
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get upgrade -y; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      git \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    go version; \
+    go env GOVERSION; \
+    git clone --depth 1 --branch "${GOSU_VERSION}" https://github.com/tianon/gosu /tmp/gosu; \
+    cd /tmp/gosu; \
+    go mod tidy; \
+    go list -m golang.org/x/sys github.com/moby/sys/user; \
+    CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /usr/local/bin/gosu .; \
+    go version -m /usr/local/bin/gosu; \
+    /usr/local/bin/gosu --version
+
+
+FROM debian:trixie-20260316-slim AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN set -eux; \
     apt-get update; \
@@ -38,7 +100,6 @@ RUN set -eux; \
       unzip \
       rsync \
       tini \
-      gosu \
       procps \
       libc6 \
       libstdc++6 \
@@ -59,23 +120,14 @@ RUN set -eux; \
       --shell /usr/sbin/nologin \
       minecraft
 
-RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in \
-      amd64) MC_ARCH="amd64" ;; \
-      arm64) MC_ARCH="arm64" ;; \
-      *) echo "Unsupported TARGETARCH=${TARGETARCH:-unknown} (supported: amd64, arm64)"; exit 1 ;; \
-    esac; \
-    MC_BASE_URL="https://dl.min.io/client/mc/release/linux-${MC_ARCH}"; \
-    curl -fsSL --retry 3 "${MC_BASE_URL}/mc" -o /usr/local/bin/mc; \
-    curl -fsSL --retry 3 "${MC_BASE_URL}/mc.sha256sum" -o /tmp/mc.sha256sum; \
-    expected="$(cut -d' ' -f1 /tmp/mc.sha256sum)"; \
-    actual="$(sha256sum /usr/local/bin/mc | cut -d' ' -f1)"; \
-    test "${actual}" = "${expected}"; \
-    chmod 0755 /usr/local/bin/mc; \
-    rm -f /tmp/mc.sha256sum; \
-    /usr/local/bin/mc --version
-
+COPY --from=mc-builder /usr/local/bin/mc /usr/local/bin/mc
+COPY --from=gosu-builder /usr/local/bin/gosu /usr/local/bin/gosu
 COPY --from=mcrcon-builder /usr/local/bin/mcrcon /usr/local/bin/mcrcon
+RUN set -eux; \
+    /usr/local/bin/mc --help >/dev/null; \
+    /usr/local/bin/gosu --version; \
+    test "$(/usr/local/bin/gosu minecraft id -u)" = "1000"; \
+    ! command -v go
 
 COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
