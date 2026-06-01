@@ -1,0 +1,60 @@
+name: Status checks
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: status-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell:
+    name: Shell checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Check Bash syntax
+        run: bash -n entrypoint.sh
+
+      - name: Run ShellCheck
+        run: shellcheck entrypoint.sh
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: shell
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build latest target
+        run: |
+          docker build \
+            --pull \
+            --target bedrock-latest \
+            --tag minecraft-bedrock-server:ci-latest \
+            .
+
+      - name: Build stable target
+        run: |
+          docker build \
+            --target bedrock-stable \
+            --build-arg BDS_STABLE_VERSION=1.21.130.4 \
+            --tag minecraft-bedrock-server:ci-stable \
+            .
