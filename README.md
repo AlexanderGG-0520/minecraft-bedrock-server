@@ -1,6 +1,6 @@
 # Minecraft Bedrock Server (Performance-first)
 
-![Docker Build](https://img.shields.io/github/actions/workflow/status/AlexanderGG-0520/minecraft-bedrock-server/publish.yml?branch=main)
+![Status checks](https://img.shields.io/github/actions/workflow/status/AlexanderGG-0520/minecraft-bedrock-server/status-checks.yml?branch=main&label=status%20checks)
 [![Docker Pulls](https://img.shields.io/docker/pulls/alecjp02/minecraft-bedrock-server.svg?logo=docker)](https://hub.docker.com/r/alecjp02/minecraft-bedrock-server/)
 [![Docker Stars](https://img.shields.io/docker/stars/alecjp02/minecraft-bedrock-server.svg?logo=docker)](https://hub.docker.com/r/alecjp02/minecraft-bedrock-server/)
 [![GitHub Issues](https://img.shields.io/github/issues-raw/alexandergg-0520/minecraft-bedrock-server.svg)](https://github.com/alexandergg-0520/minecraft-bedrock-server/issues)
