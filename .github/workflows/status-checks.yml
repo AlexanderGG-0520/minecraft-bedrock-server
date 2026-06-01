@@ -58,3 +58,23 @@ jobs:
             --build-arg BDS_STABLE_VERSION=1.21.130.4 \
             --tag minecraft-bedrock-server:ci-stable \
             .
+
+  status:
+    name: Status checks
+    runs-on: ubuntu-latest
+    needs:
+      - shell
+      - docker
+    if: always()
+    steps:
+      - name: Verify required jobs
+        run: |
+          if [[ "${{ needs.shell.result }}" != "success" ]]; then
+            echo "Shell checks failed or did not complete successfully"
+            exit 1
+          fi
+          if [[ "${{ needs.docker.result }}" != "success" ]]; then
+            echo "Docker build failed or did not complete successfully"
+            exit 1
+          fi
+          echo "All required status checks passed"
