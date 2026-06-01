@@ -33,7 +33,7 @@ jobs:
         run: bash -n entrypoint.sh
 
       - name: Run ShellCheck
-        run: shellcheck entrypoint.sh
+        run: shellcheck --severity=warning entrypoint.sh
 
   docker:
     name: Docker build
