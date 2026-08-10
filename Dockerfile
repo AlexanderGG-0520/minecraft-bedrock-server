@@ -2,7 +2,7 @@
 
 ARG GO_VERSION=1.25.9
 
-FROM debian:trixie-20260713-slim AS mcrcon-builder
+FROM debian:trixie-20260803-slim AS mcrcon-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -85,7 +85,7 @@ RUN set -eux; \
     /usr/local/bin/gosu --version
 
 
-FROM debian:trixie-20260713-slim AS base
+FROM debian:trixie-20260803-slim AS base
 
 ENV DEBIAN_FRONTEND=noninteractive
 
