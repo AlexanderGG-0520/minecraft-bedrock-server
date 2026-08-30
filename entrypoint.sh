@@ -23,6 +23,8 @@ source "${LIB_DIR}/config.sh"
 source "${LIB_DIR}/filesystem.sh"
 # shellcheck source=scripts/lib/preflight.sh
 source "${LIB_DIR}/preflight.sh"
+# shellcheck source=scripts/lib/lifecycle.sh
+source "${LIB_DIR}/lifecycle.sh"
 # shellcheck source=scripts/lib/s3_client.sh
 source "${LIB_DIR}/s3_client.sh"
 # shellcheck source=scripts/lib/content_assets.sh
