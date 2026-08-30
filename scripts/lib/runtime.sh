@@ -37,12 +37,6 @@ run_server() {
 
 runtime() {
   log INFO "Starting runtime"
-
-  if [[ "$(id -u)" -eq 0 && ( "${RUN_UID}" != "0" || "${RUN_GID}" != "0" ) ]]; then
-    log INFO "Dropping privileges to ${RUN_UID}:${RUN_GID}"
-    exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh run
-  fi
-
   run_phase_hooks "pre-runtime"
   run_server
 }
