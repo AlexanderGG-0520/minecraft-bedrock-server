@@ -130,7 +130,10 @@ RUN set -eux; \
     ! command -v go
 
 COPY entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+COPY scripts/lib/ /usr/local/lib/minecraft-bedrock-server/
+RUN set -eux; \
+    chmod 0755 /usr/local/bin/docker-entrypoint.sh; \
+    find /usr/local/lib/minecraft-bedrock-server -type f -name '*.sh' -exec chmod 0644 {} +
 
 WORKDIR /data
 VOLUME ["/data"]
