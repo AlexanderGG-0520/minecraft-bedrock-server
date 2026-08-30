@@ -35,7 +35,8 @@ activate_behaviorpacks() {
   activate_dir_atomic \
     "${INPUT_BEHAVIORPACKS_DIR}" \
     "${DATA_DIR}/behavior_packs" \
-    "behavior_packs"
+    "behavior_packs" \
+    "${BEHAVIORPACKS_REMOVE_EXTRA}"
 }
 
 install_resourcepacks() {
@@ -73,5 +74,6 @@ activate_resourcepacks() {
   activate_dir_atomic \
     "${INPUT_RESOURCEPACKS_DIR}" \
     "${DATA_DIR}/resource_packs" \
-    "resource_packs"
+    "resource_packs" \
+    "${RESOURCEPACKS_REMOVE_EXTRA}"
 }
