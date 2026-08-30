@@ -1,5 +1,57 @@
 # shellcheck shell=bash
 
+refuse_unsafe_filesystem_path() {
+  local path="${1:-}"
+  local action="${2:-operate on}"
+  local resolved_path
+
+  if [[ -z "${path}" || "${path}" == "/" ]]; then
+    log ERROR "Refusing to ${action} unsafe path"
+    return 1
+  fi
+
+  if command -v realpath >/dev/null 2>&1; then
+    resolved_path="$(realpath -m -- "${path}")" || {
+      log ERROR "Refusing to ${action} unsafe path"
+      return 1
+    }
+    if [[ "${resolved_path}" == "/" ]]; then
+      log ERROR "Refusing to ${action} unsafe path"
+      return 1
+    fi
+  fi
+
+  return 0
+}
+
+safe_rm_f() {
+  local path="${1:-}"
+  refuse_unsafe_filesystem_path "${path}" "remove" || return 1
+  rm -f -- "${path}"
+}
+
+safe_rm_rf() {
+  local path="${1:-}"
+  refuse_unsafe_filesystem_path "${path}" "remove" || return 1
+  rm -rf -- "${path}"
+}
+
+safe_mv() {
+  local src="${1:-}"
+  local dst="${2:-}"
+  refuse_unsafe_filesystem_path "${src}" "move from" || return 1
+  refuse_unsafe_filesystem_path "${dst}" "move to" || return 1
+  mv -- "${src}" "${dst}"
+}
+
+safe_mv_f() {
+  local src="${1:-}"
+  local dst="${2:-}"
+  refuse_unsafe_filesystem_path "${src}" "move from" || return 1
+  refuse_unsafe_filesystem_path "${dst}" "move to" || return 1
+  mv -f -- "${src}" "${dst}"
+}
+
 install_dirs() {
   log INFO "Preparing directory structure"
   mkdir -p \
@@ -27,22 +79,41 @@ activate_dir_atomic() {
     return 0
   }
 
+  if ! find "${src}" -mindepth 1 -print -quit 2>/dev/null | grep -q .; then
+    log INFO "${name} input directory is empty (${src}), skipping activation"
+    return 0
+  fi
+
   parent="$(dirname "${dst}")"
   base="$(basename "${dst}")"
-  staging="${parent}/.${base}.staging"
-  backup="${parent}/.${base}.old"
+  mkdir -p "${parent}"
+
+  staging="$(mktemp -d "${parent}/.${base}.staging.XXXXXX")" \
+    || die "Failed to create ${name} staging directory"
+  backup="$(mktemp -d "${parent}/.${base}.old.XXXXXX")" \
+    || { safe_rm_rf "${staging}"; die "Failed to create ${name} backup directory"; }
+  safe_rm_rf "${backup}"
 
   log INFO "Activating ${name} (atomic) (${src} -> ${dst})"
-  rm -rf -- "${staging}"
-  mkdir -p "${staging}"
-  rsync -a --delete "${src}/" "${staging}/"
+  if ! rsync -a --delete "${src}/" "${staging}/"; then
+    safe_rm_rf "${staging}" || true
+    die "Failed to stage ${name}"
+  fi
 
   if [[ -d "${dst}" ]]; then
-    rm -rf -- "${backup}"
-    mv -- "${dst}" "${backup}"
+    if ! safe_mv "${dst}" "${backup}"; then
+      safe_rm_rf "${staging}" || true
+      die "Failed to preserve current ${name} before activation"
+    fi
   fi
-  mv -- "${staging}" "${dst}"
-  rm -rf -- "${backup}"
+
+  if ! safe_mv "${staging}" "${dst}"; then
+    [[ ! -d "${backup}" ]] || safe_mv "${backup}" "${dst}" || true
+    safe_rm_rf "${staging}" || true
+    die "Failed to activate ${name}"
+  fi
+
+  [[ ! -d "${backup}" ]] || safe_rm_rf "${backup}"
 }
 
 fix_ownership_if_needed() {
