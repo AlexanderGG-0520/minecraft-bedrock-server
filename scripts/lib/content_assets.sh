@@ -12,7 +12,7 @@ install_behaviorpacks() {
 
   mc_configure
   local dst="${INPUT_BEHAVIORPACKS_DIR}"
-  local remove=""
+  local -a mirror_args=(--overwrite)
   mkdir -p "${dst}"
 
   if is_true "${BEHAVIORPACKS_SYNC_ONCE}" \
@@ -23,8 +23,10 @@ install_behaviorpacks() {
   fi
 
   log INFO "Syncing behavior packs from s3://${BEHAVIORPACKS_S3_BUCKET}/${BEHAVIORPACKS_S3_PREFIX}"
-  is_true "${BEHAVIORPACKS_REMOVE_EXTRA}" && remove="--remove"
-  mc mirror --overwrite ${remove} \
+  if is_true "${BEHAVIORPACKS_REMOVE_EXTRA}"; then
+    mirror_args+=(--remove)
+  fi
+  mc mirror "${mirror_args[@]}" \
     "s3/${BEHAVIORPACKS_S3_BUCKET}/${BEHAVIORPACKS_S3_PREFIX}" "${dst}" \
     || die "Failed to sync behavior packs"
 }
@@ -48,7 +50,7 @@ install_resourcepacks() {
 
   mc_configure
   local dst="${INPUT_RESOURCEPACKS_DIR}"
-  local remove=""
+  local -a mirror_args=(--overwrite)
   mkdir -p "${dst}"
 
   if is_true "${RESOURCEPACKS_SYNC_ONCE}" \
@@ -59,8 +61,10 @@ install_resourcepacks() {
   fi
 
   log INFO "Syncing resource packs from s3://${RESOURCEPACKS_S3_BUCKET}/${RESOURCEPACKS_S3_PREFIX}"
-  is_true "${RESOURCEPACKS_REMOVE_EXTRA}" && remove="--remove"
-  mc mirror --overwrite ${remove} \
+  if is_true "${RESOURCEPACKS_REMOVE_EXTRA}"; then
+    mirror_args+=(--remove)
+  fi
+  mc mirror "${mirror_args[@]}" \
     "s3/${RESOURCEPACKS_S3_BUCKET}/${RESOURCEPACKS_S3_PREFIX}" "${dst}" \
     || die "Failed to sync resource packs"
 }
