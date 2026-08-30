@@ -6,6 +6,10 @@ handle_command_mode() {
   COMMAND_MODE_SHIFT=0
 
   case "${1:-}" in
+    install-only)
+      INSTALL_ONLY=true
+      COMMAND_MODE_SHIFT=1
+      ;;
     rcon)
       shift
       rcon_exec "$@"
