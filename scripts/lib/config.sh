@@ -20,9 +20,16 @@ initialize_config() {
   : "${BDS_DOWNLOAD_URL:=}"
   : "${BDS_CHANNEL:=latest}"
   : "${BDS_STABLE_VERSION:=}"
+  : "${FORCE_REINSTALL:=false}"
 
   : "${READY_DELAY:=5}"
   : "${FIX_OWNERSHIP:=true}"
+  : "${INSTALL_ONLY:=false}"
+
+  : "${HOOKS_ENABLED:=false}"
+  : "${HOOKS_DIR:=/hooks}"
+  : "${HOOKS_STRICT:=true}"
+  : "${HOOKS_TIMEOUT_SEC:=0}"
 
   : "${ENABLE_RCON:=true}"
   : "${RCON_HOST:=127.0.0.1}"
