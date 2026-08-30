@@ -72,6 +72,7 @@ activate_dir_atomic() {
   local src="$1"
   local dst="$2"
   local name="$3"
+  local remove_extra="${4:-true}"
   local parent base staging backup
 
   [[ -d "${src}" ]] || {
@@ -94,8 +95,16 @@ activate_dir_atomic() {
     || { safe_rm_rf "${staging}"; die "Failed to create ${name} backup directory"; }
   safe_rm_rf "${backup}"
 
+  if ! is_true "${remove_extra}" && [[ -d "${dst}" ]]; then
+    log INFO "Preserving existing ${name} entries not present in managed input"
+    if ! rsync -a "${dst}/" "${staging}/"; then
+      safe_rm_rf "${staging}" || true
+      die "Failed to seed ${name} staging directory from current state"
+    fi
+  fi
+
   log INFO "Activating ${name} (atomic) (${src} -> ${dst})"
-  if ! rsync -a --delete "${src}/" "${staging}/"; then
+  if ! rsync -a "${src}/" "${staging}/"; then
     safe_rm_rf "${staging}" || true
     die "Failed to stage ${name}"
   fi
