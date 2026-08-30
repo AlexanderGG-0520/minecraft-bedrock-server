@@ -46,6 +46,9 @@ preflight() {
     validate_port "RCON_PORT" "${RCON_PORT}"
   fi
 
+  validate_rcon_startup_commands_config \
+    || die "Invalid RCON startup command configuration"
+
   validate_port "SERVER_PORT" "${SERVER_PORT:-}"
   validate_port "SERVER_PORTV6" "${SERVER_PORTV6:-}"
 
