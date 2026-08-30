@@ -30,15 +30,34 @@ jobs:
           sudo apt-get install -y --no-install-recommends shellcheck
 
       - name: Check Bash syntax
-        run: bash -n entrypoint.sh
+        run: |
+          bash -n entrypoint.sh
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(find scripts test -type f -name '*.sh' -print0)
 
       - name: Run ShellCheck
-        run: shellcheck --severity=warning entrypoint.sh
+        run: shellcheck -x --severity=warning entrypoint.sh
+
+  smoke:
+    name: Lifecycle smoke tests
+    runs-on: ubuntu-latest
+    needs: shell
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run smoke tests
+        run: |
+          for test_script in test/*-smoke.sh; do
+            echo "==> ${test_script}"
+            bash "${test_script}"
+          done
 
   docker:
     name: Docker build
     runs-on: ubuntu-latest
-    needs: shell
+    needs: smoke
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -64,6 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - shell
+      - smoke
       - docker
     if: always()
     steps:
@@ -71,6 +91,10 @@ jobs:
         run: |
           if [[ "${{ needs.shell.result }}" != "success" ]]; then
             echo "Shell checks failed or did not complete successfully"
+            exit 1
+          fi
+          if [[ "${{ needs.smoke.result }}" != "success" ]]; then
+            echo "Lifecycle smoke tests failed or did not complete successfully"
             exit 1
           fi
           if [[ "${{ needs.docker.result }}" != "success" ]]; then
