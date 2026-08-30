@@ -64,6 +64,7 @@ main() {
   log INFO "Minecraft Bedrock Runtime Booting..."
   preflight
   fix_ownership_if_needed
+  drop_privileges_if_needed
   run_runtime_phase
 }
 
