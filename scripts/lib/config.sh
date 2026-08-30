@@ -35,6 +35,7 @@ initialize_config() {
   : "${RCON_HOST:=127.0.0.1}"
   : "${RCON_PORT:=19134}"
   : "${RCON_PASSWORD:=}"
+  : "${RCON_CMDS_STARTUP:=}"
 
   : "${S3_ENDPOINT:=}"
   : "${S3_ACCESS_KEY:=}"
