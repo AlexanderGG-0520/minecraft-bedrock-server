@@ -2,6 +2,7 @@
 
 install() {
   log INFO "Install phase start"
+  run_phase_hooks "pre-install"
 
   install_dirs
   install_eula
@@ -14,5 +15,6 @@ install() {
   activate_resourcepacks
   apply_server_properties_from_env
 
+  run_phase_hooks "post-install"
   log INFO "Install phase completed"
 }
