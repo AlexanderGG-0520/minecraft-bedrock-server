@@ -131,3 +131,18 @@ fix_ownership_if_needed() {
   chown -R "${RUN_UID}:${RUN_GID}" "${DATA_DIR}" \
     || die "chown failed (set FIX_OWNERSHIP=false to skip)"
 }
+
+drop_privileges_if_needed() {
+  if [[ "$(id -u)" -ne 0 || ( "${RUN_UID}" == "0" && "${RUN_GID}" == "0" ) ]]; then
+    return 0
+  fi
+
+  log INFO "Dropping privileges to ${RUN_UID}:${RUN_GID} before install/runtime lifecycle"
+  export RUN_UID RUN_GID INSTALL_ONLY
+
+  if is_true "${INSTALL_ONLY:-false}"; then
+    exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh install-only
+  fi
+
+  exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh run
+}
