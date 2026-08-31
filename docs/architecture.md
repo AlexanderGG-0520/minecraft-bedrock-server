@@ -272,27 +272,41 @@ Shutdown attempts application-level RCON stop first when enabled, then uses boun
 
 ## Regression boundary
 
-The required status workflow covers four layers:
+The required status workflow covers five layers:
 
 1. Bash syntax and ShellCheck;
 2. module-level lifecycle/state smoke tests;
 3. Docker builds for latest and stable targets;
-4. an actual container lifecycle integration using a local fake BDS ELF fixture.
+4. an actual container lifecycle integration using a local fake BDS ELF fixture;
+5. a persistent-state transition matrix that repeatedly reuses the same `/data` volume across install, reconciliation, replacement, recovery, and invalid-state cases.
 
-The container integration verifies install-only, managed install metadata, Bedrock player-access reconciliation, shared-pack-to-world binding, runtime readiness, healthcheck behavior, signal termination, and readiness cleanup without depending on Mojang's live BDS download service.
+The container lifecycle integration verifies install-only, managed install metadata, Bedrock player-access reconciliation, shared-pack-to-world binding, runtime readiness, healthcheck behavior, signal termination, and readiness cleanup without depending on Mojang's live BDS download service.
+
+The persistent-state transition matrix intentionally keeps the artifact unavailable during idempotent and legacy-adoption runs so an unexpected redownload fails rather than passing silently. It verifies:
+
+- initial managed installation and same-request idempotency;
+- preservation of unowned player-access, pack, world-binding, world, and property state;
+- ownership accumulation with remove-extra disabled and pruning of only stale runtime-owned state when remove-extra is enabled;
+- refusal of incompatible pinned/custom replacement without `FORCE_REINSTALL=true`;
+- intentional forced replacement while preserving unrelated persistent state;
+- recovery when a managed executable disappears;
+- legacy `.bds-version` adoption without downloading the artifact again;
+- fail-fast behavior for corrupt, unsupported-future-schema, and unmanaged install metadata.
+
+This matrix is deterministic and uses local fake artifacts. Floating-channel and real-Mojang compatibility belong in a separate periodic compatibility layer so required PR checks are not coupled to external service availability.
 
 ## Remaining Minecartainer-class work
 
-The major lifecycle architecture and the first Bedrock-native managed-state features are now present. Remaining work is narrower capability expansion and deeper transition testing rather than another structural rewrite.
+The major lifecycle architecture, Bedrock-native managed-state features, and deterministic persistent-volume transition coverage are now present. Remaining work is capability expansion and compatibility hardening rather than another structural rewrite.
 
 Useful next areas include:
 
+- a general managed-state schema migration framework that can explicitly migrate supported old schemas while refusing unknown future schemas;
+- periodic integration against a real pinned BDS artifact, separate from deterministic required PR checks;
 - optional live RCON reload workflows for player-access changes applied while a server is already running;
 - validation of manifest dependency graphs and paired behavior/resource pack relationships;
 - richer new-world bootstrap workflows without violating the rule that binding must not manufacture a fake world directory;
 - stronger S3 source/cache ownership metadata and source-conflict diagnostics;
-- persistent-volume upgrade/reinstall matrices across BDS versions and managed-state migrations;
-- periodic integration against a real pinned BDS artifact in addition to the deterministic fake-BDS CI fixture;
 - additional shutdown/RCON integration cases using a controllable test server.
 
 The standard remains the same: add automation only after its state ownership and destructive boundaries are explicit.
