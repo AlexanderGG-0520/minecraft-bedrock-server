@@ -14,16 +14,26 @@ world_source_fingerprint() {
     | awk '{print $1}'
 }
 
-validate_world_state_marker() {
+validate_world_state_marker_current() {
   local marker="$1"
   jq -e '
     type == "object"
-    and .schema_version == 1
+    and .schema_version == 2
+    and .state_type == "world-source"
     and .source_type == "s3"
     and (.source_fingerprint | type == "string" and length > 0)
     and (.archive_sha256 | type == "string" and length > 0)
-  ' "${marker}" >/dev/null 2>&1 \
-    || die "Invalid/corrupt world source marker: ${marker}"
+  ' "${marker}" >/dev/null 2>&1
+}
+
+validate_world_state_marker() {
+  local marker="$1"
+  managed_state_ensure_current \
+    "${marker}" \
+    world-source \
+    validate_world_state_marker_current \
+    managed_state_migrate_envelope \
+    'world source marker'
 }
 
 write_world_state_marker() {
@@ -38,9 +48,11 @@ write_world_state_marker() {
     || die "Failed to create world source marker temporary file"
 
   if ! jq -n \
+    --argjson schema_version "${MANAGED_STATE_SCHEMA_VERSION}" \
+    --arg state_type "world-source" \
     --arg source_fingerprint "${source_fingerprint}" \
     --arg archive_sha256 "${archive_sha256}" \
-    '{schema_version:1,source_type:"s3",source_fingerprint:$source_fingerprint,archive_sha256:$archive_sha256}' \
+    '{schema_version:$schema_version,state_type:$state_type,source_type:"s3",source_fingerprint:$source_fingerprint,archive_sha256:$archive_sha256}' \
     > "${tmp}"; then
     safe_rm_f "${tmp}" || true
     die "Failed to build world source marker"

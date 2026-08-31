@@ -39,20 +39,37 @@ resolve_world_pack_level_name() {
   printf '%s\n' "${level_name}"
 }
 
-validate_world_pack_state_marker() {
+validate_world_pack_state_marker_current() {
   local marker="$1"
   local level_name="$2"
   local kind="$3"
 
   jq -e --arg level_name "${level_name}" --arg kind "${kind}" '
     type == "object"
-    and .schema_version == 1
+    and .schema_version == 2
+    and .state_type == "world-pack-binding"
     and .level_name == $level_name
     and .kind == $kind
     and (.managed_pack_ids | type == "array")
     and all(.managed_pack_ids[]; type == "string" and length > 0)
-  ' "${marker}" >/dev/null 2>&1 \
-    || die "Invalid/corrupt managed world-pack marker: ${marker}"
+    and ((.managed_pack_ids | length) == (.managed_pack_ids | unique | length))
+  ' "${marker}" >/dev/null 2>&1
+}
+
+validate_world_pack_state_marker() {
+  local marker="$1"
+  local level_name="$2"
+  local kind="$3"
+
+  managed_state_ensure_current \
+    "${marker}" \
+    world-pack-binding \
+    validate_world_pack_state_marker_current \
+    managed_state_migrate_envelope \
+    "managed world-pack ${kind} marker" \
+    "${MANAGED_STATE_SCHEMA_VERSION}" \
+    "${level_name}" \
+    "${kind}"
 }
 
 prepare_world_pack_previous_ids() {
@@ -87,10 +104,12 @@ prepare_world_pack_marker() {
     || die "Failed to create ${kind} world-pack marker temporary file"
 
   if ! jq -n \
+    --argjson schema_version "${MANAGED_STATE_SCHEMA_VERSION}" \
+    --arg state_type "world-pack-binding" \
     --arg level_name "${level_name}" \
     --arg kind "${kind}" \
     --slurpfile ids "${ids_file}" \
-    '{schema_version:1,level_name:$level_name,kind:$kind,managed_pack_ids:$ids[0]}' \
+    '{schema_version:$schema_version,state_type:$state_type,level_name:$level_name,kind:$kind,managed_pack_ids:$ids[0]}' \
     > "${tmp}"; then
     safe_rm_f "${tmp}" || true
     die "Failed to build ${kind} world-pack marker"
