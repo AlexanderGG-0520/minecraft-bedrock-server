@@ -59,8 +59,15 @@ managed_state_ensure_current() {
   local validator_fn="$3"
   local migration_fn="$4"
   local context="$5"
-  local current_version="${6:-${MANAGED_STATE_SCHEMA_VERSION}}"
-  shift 6 || true
+  local current_version
+
+  if (( $# >= 6 )); then
+    current_version="$6"
+    shift 6
+  else
+    current_version="${MANAGED_STATE_SCHEMA_VERSION}"
+    shift 5
+  fi
   local validator_args=("$@")
   local version next_version marker_dir marker_base working next_tmp
 
