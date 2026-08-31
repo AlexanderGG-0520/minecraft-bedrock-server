@@ -2,7 +2,7 @@
 
 This document defines the responsibility and state-ownership boundaries of the Minecraft Bedrock server runtime.
 
-The goal is not to reproduce Minecartainer file-for-file. The goal is to give Bedrock Dedicated Server the same class of lifecycle rigor: disposable compute, long-lived state, explicit ownership, guarded destructive transitions, and regression-tested orchestration.
+The goal is not to reproduce Minecartainer file-for-file. The goal is to give Bedrock Dedicated Server the same class of lifecycle rigor: disposable compute, long-lived state, explicit ownership, guarded destructive transitions, schema-aware state evolution, and regression-tested orchestration.
 
 ## Core rule
 
@@ -26,6 +26,7 @@ It must not accumulate BDS installation, S3 delivery, world mutation, pack owner
 | `common.sh` | Generic predicates and validation helpers |
 | `config.sh` | Environment defaults and the `server.properties` mapping contract |
 | `filesystem.sh` | Safe path operations, `/data` preparation, atomic directory transitions, ownership repair, privilege drop |
+| `managed_state.sh` | Common managed-state schema validation, atomic migration, envelope identity, and future-schema refusal |
 | `content_state.sh` | Ownership metadata and ownership-aware activation for externally supplied pack content |
 | `player_access.sh` | Declarative merge and ownership policy for `allowlist.json` and top-level player `permissions.json` |
 | `preflight.sh` | Validate configuration before persistent-state mutation or runtime launch |
@@ -64,6 +65,7 @@ For example:
 - `content_state.sh` owns that active-pack deletion/ownership policy;
 - `world_pack_binding.sh` consumes content ownership metadata and pack manifests but does not fetch or activate shared packs;
 - `player_access.sh` owns reconciliation of BDS player-access files but not `server.properties` or runtime reload commands;
+- `managed_state.sh` knows how a marker schema advances safely but does not know feature-specific marker semantics;
 - `shutdown.sh` owns termination policy while `rcon.sh` owns application-level control requests.
 
 A feature module should not depend on an unrelated feature module merely for utility code. Shared mechanics belong in infrastructure helpers or remain local to the feature when they are feature-specific.
@@ -74,7 +76,44 @@ A feature module should not depend on an unrelated feature module merely for uti
 
 The runtime therefore distinguishes between different classes of state instead of treating `/data` as one mutable directory.
 
-Managed metadata under `/data/.managed` is operational state, not secret material. Runtime-generated JSON markers are created as `0644` so operators, diagnostics, and read-only sidecars can inspect them without requiring the Minecraft runtime UID.
+Managed metadata under `/data/.managed`, and the top-level BDS install marker, are operational state rather than secret material. Runtime-generated JSON markers are created as `0644` so operators, diagnostics, and read-only sidecars can inspect them without requiring the Minecraft runtime UID.
+
+### Managed-state schema evolution
+
+Managed JSON markers currently use schema version 2. Every v2 marker has a common envelope:
+
+```json
+{
+  "schema_version": 2,
+  "state_type": "<marker-class>"
+}
+```
+
+The current state types are:
+
+```text
+bds-install
+world-source
+content-assets
+player-access
+world-pack-binding
+```
+
+`state_type` is part of the safety boundary. A structurally valid marker for one feature must not be accepted accidentally as another feature's state merely because both use the same schema number.
+
+Schema handling follows these rules:
+
+- current-schema markers must pass the common envelope check and their feature-specific semantic validator;
+- supported older markers are migrated one version at a time;
+- schema v1 markers created by earlier images are migrated automatically to v2 by adding the typed envelope while preserving their feature state;
+- an unknown future schema is rejected before mutation so an older image cannot rewrite state it does not understand;
+- malformed or non-integral schema metadata is rejected as corrupt state;
+- migration occurs through temporary files in the marker's own directory, so final activation is a same-filesystem atomic rename;
+- the fully migrated candidate must pass both envelope and feature semantic validation before activation;
+- if migration or validation fails, the original marker remains active and unchanged;
+- successful migrated markers are activated as mode `0644`.
+
+Schema migration is therefore a controlled persistent-state transition, not an in-place JSON edit. Feature modules supply semantic validation while `managed_state.sh` owns the generic migration mechanics.
 
 ### Managed BDS installation
 
@@ -86,7 +125,7 @@ The primary marker is:
 
 It records:
 
-- marker schema version;
+- marker schema/type envelope;
 - managed artifact identity;
 - installation mode (`latest`, `stable`, explicit version, or custom URL);
 - requested version;
@@ -208,12 +247,12 @@ preflight
   -> privilege drop
   -> pre-install hooks
   -> install phase
-       -> managed BDS install/adoption
-       -> optional world bootstrap/replacement
-       -> shared behavior/resource pack activation
+       -> managed BDS install/adoption/schema migration
+       -> optional world bootstrap/replacement/schema migration
+       -> shared behavior/resource pack activation/schema migration
        -> server.properties reconciliation
-       -> player-access reconciliation
-       -> world pack-binding reconciliation
+       -> player-access reconciliation/schema migration
+       -> world pack-binding reconciliation/schema migration
   -> post-install hooks
   -> pre-runtime hooks
   -> launch BDS
@@ -283,10 +322,12 @@ Shutdown attempts application-level RCON stop first when enabled, then uses boun
 The required `Status checks` workflow covers five deterministic layers:
 
 1. Bash syntax and ShellCheck;
-2. module-level lifecycle/state smoke tests;
+2. module-level lifecycle/state/schema-migration smoke tests;
 3. Docker builds for latest and stable targets;
 4. an actual container lifecycle integration using a local fake BDS ELF fixture;
-5. a persistent-state transition matrix that repeatedly reuses the same `/data` volume across install, reconciliation, replacement, recovery, and invalid-state cases.
+5. a persistent-state transition matrix that repeatedly reuses the same `/data` volume across install, reconciliation, replacement, recovery, schema handling, and invalid-state cases.
+
+The schema-migration smoke boundary verifies generic atomic migration behavior, no mutation after a failed semantic migration, future-schema refusal, marker type identity, and v1-to-v2 migration for every production marker class.
 
 The container lifecycle integration verifies install-only, managed install metadata, Bedrock player-access reconciliation, shared-pack-to-world binding, runtime readiness, healthcheck behavior, signal termination, and readiness cleanup without depending on Mojang's live BDS download service.
 
@@ -298,7 +339,8 @@ The persistent-state transition matrix intentionally keeps the artifact unavaila
 - refusal of incompatible pinned/custom replacement without `FORCE_REINSTALL=true`;
 - intentional forced replacement while preserving unrelated persistent state;
 - recovery when a managed executable disappears;
-- legacy `.bds-version` adoption without downloading the artifact again;
+- legacy `.bds-version` adoption directly into the current managed schema without downloading the artifact again;
+- persistence of the schema-v2/type envelope across repeated lifecycle transitions;
 - fail-fast behavior for corrupt, unsupported-future-schema, and unmanaged install metadata.
 
 A sixth, deliberately non-required compatibility layer runs against the actual official BDS distribution. `.github/workflows/real-bds-compatibility.yml` runs after runtime-affecting pushes to `main`, on a Monday/Thursday schedule, and on manual dispatch.
@@ -319,11 +361,10 @@ See [`real-bds-compatibility.md`](real-bds-compatibility.md) for trigger semanti
 
 ## Remaining Minecartainer-class work
 
-The major lifecycle architecture, Bedrock-native managed-state features, deterministic persistent-volume transition coverage, and real-upstream BDS compatibility monitoring are now present. Remaining work is capability expansion and managed-state evolution rather than another structural rewrite.
+The major lifecycle architecture, Bedrock-native managed-state features, deterministic persistent-volume transition coverage, schema evolution framework, and real-upstream BDS compatibility monitoring are now present. Remaining work is capability expansion rather than another structural rewrite.
 
 Useful next areas include:
 
-- a general managed-state schema migration framework that can explicitly migrate supported old schemas while refusing unknown future schemas;
 - optional live RCON reload workflows for player-access changes applied while a server is already running;
 - validation of manifest dependency graphs and paired behavior/resource pack relationships;
 - richer new-world bootstrap workflows without violating the rule that binding must not manufacture a fake world directory;
