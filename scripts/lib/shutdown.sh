@@ -16,6 +16,7 @@ wait_for_server_exit() {
 
 graceful_shutdown() {
   log INFO "[shutdown] begin"
+  safe_rm_f "${DATA_DIR}/.ready" 2>/dev/null || true
 
   if rcon_stop_once; then
     log INFO "[shutdown] rcon stop succeeded"
