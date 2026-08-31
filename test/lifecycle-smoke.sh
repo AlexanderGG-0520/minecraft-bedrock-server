@@ -18,10 +18,12 @@ activate_behaviorpacks() { record activate_behaviorpacks; }
 install_resourcepacks() { record install_resourcepacks; }
 activate_resourcepacks() { record activate_resourcepacks; }
 apply_server_properties_from_env() { record apply_server_properties; }
+manage_player_access() { record manage_player_access; }
+bind_managed_world_packs() { record bind_managed_world_packs; }
 
 install
 
-expected_install="hook:pre-install install_dirs install_eula install_bds ldd_check install_world install_behaviorpacks activate_behaviorpacks install_resourcepacks activate_resourcepacks apply_server_properties hook:post-install"
+expected_install="hook:pre-install install_dirs install_eula install_bds ldd_check install_world install_behaviorpacks activate_behaviorpacks install_resourcepacks activate_resourcepacks apply_server_properties manage_player_access bind_managed_world_packs hook:post-install"
 actual_install="${calls[*]}"
 [[ "${actual_install}" == "${expected_install}" ]] || {
   printf 'unexpected install order\nexpected: %s\nactual:   %s\n' "${expected_install}" "${actual_install}" >&2

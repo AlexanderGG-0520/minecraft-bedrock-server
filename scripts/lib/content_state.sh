@@ -93,6 +93,8 @@ prepare_content_state_marker() {
     safe_rm_f "${tmp}" || true
     die "Failed to build managed content marker for ${name}"
   fi
+  chmod 0644 "${tmp}" \
+    || { safe_rm_f "${tmp}" || true; die "Failed to set managed content marker permissions for ${name}"; }
 
   CONTENT_STATE_MARKER_PATH="${marker}"
   CONTENT_STATE_MARKER_TMP="${tmp}"

@@ -45,6 +45,8 @@ write_world_state_marker() {
     safe_rm_f "${tmp}" || true
     die "Failed to build world source marker"
   fi
+  chmod 0644 "${tmp}" \
+    || { safe_rm_f "${tmp}" || true; die "Failed to set world source marker permissions"; }
 
   safe_mv_f "${tmp}" "${marker}" || die "Failed to activate world source marker"
 }

@@ -23,6 +23,8 @@ source "${LIB_DIR}/config.sh"
 source "${LIB_DIR}/filesystem.sh"
 # shellcheck source=scripts/lib/content_state.sh
 source "${LIB_DIR}/content_state.sh"
+# shellcheck source=scripts/lib/player_access.sh
+source "${LIB_DIR}/player_access.sh"
 # shellcheck source=scripts/lib/preflight.sh
 source "${LIB_DIR}/preflight.sh"
 # shellcheck source=scripts/lib/lifecycle.sh
@@ -31,6 +33,8 @@ source "${LIB_DIR}/lifecycle.sh"
 source "${LIB_DIR}/s3_client.sh"
 # shellcheck source=scripts/lib/content_assets.sh
 source "${LIB_DIR}/content_assets.sh"
+# shellcheck source=scripts/lib/world_pack_binding.sh
+source "${LIB_DIR}/world_pack_binding.sh"
 # shellcheck source=scripts/lib/server_install.sh
 source "${LIB_DIR}/server_install.sh"
 # shellcheck source=scripts/lib/server_properties.sh

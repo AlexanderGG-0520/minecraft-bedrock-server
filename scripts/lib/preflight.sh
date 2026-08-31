@@ -35,6 +35,10 @@ preflight() {
   validate_boolean "RESOURCEPACKS_REMOVE_EXTRA" "${RESOURCEPACKS_REMOVE_EXTRA}"
   validate_boolean "WORLD_INSTALL_ONCE" "${WORLD_INSTALL_ONCE}"
   validate_boolean "WORLD_REPLACE" "${WORLD_REPLACE}"
+  validate_boolean "BDS_ALLOWLIST_REMOVE_EXTRA" "${BDS_ALLOWLIST_REMOVE_EXTRA}"
+  validate_boolean "BDS_PERMISSIONS_REMOVE_EXTRA" "${BDS_PERMISSIONS_REMOVE_EXTRA}"
+  validate_boolean "WORLD_PACKS_BINDING_ENABLED" "${WORLD_PACKS_BINDING_ENABLED}"
+  validate_boolean "WORLD_PACKS_REMOVE_EXTRA" "${WORLD_PACKS_REMOVE_EXTRA}"
 
   validate_nonnegative_int "HOOKS_TIMEOUT_SEC" "${HOOKS_TIMEOUT_SEC}"
   validate_nonnegative_int "READY_DELAY" "${READY_DELAY}"
@@ -47,6 +51,32 @@ preflight() {
   if is_true "${HOOKS_ENABLED}"; then
     [[ -n "${HOOKS_DIR}" && "${HOOKS_DIR}" == /* && "${HOOKS_DIR}" != "/" ]] \
       || die "HOOKS_DIR must be an absolute non-root path"
+  fi
+
+  if [[ -n "${BDS_ALLOWLIST_JSON}" && -n "${BDS_ALLOWLIST_FILE}" ]]; then
+    die "Set only one of BDS_ALLOWLIST_JSON or BDS_ALLOWLIST_FILE"
+  fi
+  if [[ -n "${BDS_PERMISSIONS_JSON}" && -n "${BDS_PERMISSIONS_FILE}" ]]; then
+    die "Set only one of BDS_PERMISSIONS_JSON or BDS_PERMISSIONS_FILE"
+  fi
+
+  local source_var source_value
+  for source_var in BDS_ALLOWLIST_FILE BDS_PERMISSIONS_FILE; do
+    source_value="${!source_var}"
+    [[ -n "${source_value}" ]] || continue
+    [[ "${source_value}" == /* && "${source_value}" != "/" ]] \
+      || die "${source_var} must be an absolute non-root path"
+    [[ -f "${source_value}" ]] || die "${source_var} does not exist: ${source_value}"
+  done
+
+  if [[ -n "${WORLD_PACKS_LEVEL_NAME}" ]]; then
+    [[ "${WORLD_PACKS_LEVEL_NAME}" != "." \
+      && "${WORLD_PACKS_LEVEL_NAME}" != ".." \
+      && "${WORLD_PACKS_LEVEL_NAME}" != */* \
+      && "${WORLD_PACKS_LEVEL_NAME}" != *\\* \
+      && "${WORLD_PACKS_LEVEL_NAME}" != *$'\n'* \
+      && "${WORLD_PACKS_LEVEL_NAME}" != *$'\r'* ]] \
+      || die "WORLD_PACKS_LEVEL_NAME must be a single safe world directory name"
   fi
 
   if ! is_true "${INSTALL_ONLY}"; then
