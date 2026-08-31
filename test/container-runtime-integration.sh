@@ -11,8 +11,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${tmp_dir}/fixture" "${tmp_dir}/install-data" "${tmp_dir}/runtime-data"
-chmod 0777 "${tmp_dir}/install-data" "${tmp_dir}/runtime-data"
+mkdir -p \
+  "${tmp_dir}/fixture" \
+  "${tmp_dir}/install-data" \
+  "${tmp_dir}/root-install-data" \
+  "${tmp_dir}/runtime-data"
+chmod 0777 \
+  "${tmp_dir}/install-data" \
+  "${tmp_dir}/root-install-data" \
+  "${tmp_dir}/runtime-data"
 
 cat > "${tmp_dir}/fake-bedrock.c" <<'EOF'
 #include <signal.h>
@@ -60,7 +67,31 @@ common_args=(
   -v "${tmp_dir}/bedrock-server-9.9.9.9.zip:/fixture/bedrock-server-9.9.9.9.zip:ro"
 )
 
-# install-only must not depend on runtime-only RCON credentials.
+image_user="$(docker image inspect -f '{{.Config.User}}' "${image}")"
+runtime_identity="$(docker run --rm --entrypoint /bin/bash "${image}" -lc 'printf "%s:%s" "$(id -u)" "$(id -g)"')"
+printf 'image Config.User=%s\n' "${image_user}"
+printf 'image default identity=%s\n' "${runtime_identity}"
+
+[[ "${image_user}" == "minecraft" ]] || {
+  printf 'unexpected image Config.User: %s\n' "${image_user}" >&2
+  exit 1
+}
+[[ "${runtime_identity}" == "1000:1000" ]] || {
+  printf 'unexpected default runtime identity: %s\n' "${runtime_identity}" >&2
+  exit 1
+}
+
+docker run --rm --entrypoint /bin/bash "${image}" -lc '
+  printf "entrypoint sha256="
+  sha256sum /usr/local/bin/docker-entrypoint.sh | awk "{print \$1}"
+  printf "filesystem module sha256="
+  sha256sum /usr/local/lib/minecraft-bedrock-server/filesystem.sh | awk "{print \$1}"
+  grep -n -E "Entering non-root mode|Dropping privileges before lifecycle" \
+    /usr/local/bin/docker-entrypoint.sh \
+    /usr/local/lib/minecraft-bedrock-server/filesystem.sh || true
+'
+
+# Install-only must not depend on runtime-only RCON credentials.
 docker run --rm \
   "${common_args[@]}" \
   -v "${tmp_dir}/install-data:/data" \
@@ -73,6 +104,30 @@ install_marker="${tmp_dir}/install-data/.bds-install.json"
 }
 [[ ! -e "${tmp_dir}/install-data/.ready" ]] || {
   printf 'install-only created runtime readiness state\n' >&2
+  exit 1
+}
+
+# Root-start compatibility must repair ownership, drop privileges, and preserve install-only mode.
+docker run --rm \
+  --user 0:0 \
+  "${common_args[@]}" \
+  -e RUN_UID=1000 \
+  -e RUN_GID=1000 \
+  -e FIX_OWNERSHIP=true \
+  -v "${tmp_dir}/root-install-data:/data" \
+  "${image}" install-only >/dev/null
+
+root_install_marker="${tmp_dir}/root-install-data/.bds-install.json"
+[[ -f "${root_install_marker}" ]] || {
+  printf 'root install-only did not create managed BDS install marker\n' >&2
+  exit 1
+}
+[[ ! -e "${tmp_dir}/root-install-data/.ready" ]] || {
+  printf 'root install-only lost command mode and entered runtime\n' >&2
+  exit 1
+}
+[[ "$(stat -c '%u:%g' "${tmp_dir}/root-install-data")" == "1000:1000" ]] || {
+  printf 'root ownership repair did not converge to 1000:1000\n' >&2
   exit 1
 }
 
