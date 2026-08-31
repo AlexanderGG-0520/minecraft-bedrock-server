@@ -184,7 +184,7 @@ manage_allowlist() {
 
   jq -e '
     type == "array"
-    and all(.[ ];
+    and all(.[];
       type == "object"
       and ((keys - ["ignoresPlayerLimit","name","xuid"]) | length == 0)
       and (.name | type == "string" and length > 0)
@@ -208,7 +208,7 @@ manage_allowlist() {
   existing="${PLAYER_ACCESS_EXISTING_TMP}"
   jq -e '
     type == "array"
-    and all(.[ ];
+    and all(.[];
       type == "object"
       and (.name | type == "string" and length > 0)
       and ((has("xuid") | not) or (.xuid | type == "string"))
@@ -270,7 +270,7 @@ manage_permissions() {
 
   jq -e '
     type == "array"
-    and all(.[ ];
+    and all(.[];
       type == "object"
       and ((keys - ["permission","xuid"]) | length == 0)
       and (.xuid | type == "string" and length > 0)
@@ -284,7 +284,7 @@ manage_permissions() {
   existing="${PLAYER_ACCESS_EXISTING_TMP}"
   jq -e '
     type == "array"
-    and all(.[ ];
+    and all(.[];
       type == "object"
       and (.xuid | type == "string" and length > 0)
       and (.permission | type == "string" and (. == "visitor" or . == "member" or . == "operator" or . == "custom"))
