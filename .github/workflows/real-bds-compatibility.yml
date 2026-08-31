@@ -1,0 +1,54 @@
+name: Real BDS compatibility
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - entrypoint.sh
+      - 'scripts/lib/**'
+      - test/real-bds-compatibility.sh
+      - .github/workflows/real-bds-compatibility.yml
+  schedule:
+    - cron: '23 4 * * 1,4'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Bedrock Dedicated Server version to test, or latest
+        required: false
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-bds-compatibility
+  cancel-in-progress: false
+
+jobs:
+  real-bds:
+    name: Real BDS lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build latest image target
+        run: |
+          docker build \
+            --pull \
+            --target bedrock-latest \
+            --tag minecraft-bedrock-server:ci-real-bds \
+            .
+
+      - name: Run real BDS compatibility lifecycle
+        env:
+          BDS_VERSION: ${{ inputs.version || 'latest' }}
+        run: |
+          bash test/real-bds-compatibility.sh \
+            minecraft-bedrock-server:ci-real-bds \
+            "${BDS_VERSION}"
