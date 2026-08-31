@@ -60,6 +60,17 @@ initialize_config() {
   : "${WORLD_INSTALL_ONCE:=true}"
   : "${WORLD_REPLACE:=false}"
 
+  : "${BDS_ALLOWLIST_JSON:=}"
+  : "${BDS_ALLOWLIST_FILE:=}"
+  : "${BDS_ALLOWLIST_REMOVE_EXTRA:=false}"
+  : "${BDS_PERMISSIONS_JSON:=}"
+  : "${BDS_PERMISSIONS_FILE:=}"
+  : "${BDS_PERMISSIONS_REMOVE_EXTRA:=false}"
+
+  : "${WORLD_PACKS_BINDING_ENABLED:=false}"
+  : "${WORLD_PACKS_REMOVE_EXTRA:=false}"
+  : "${WORLD_PACKS_LEVEL_NAME:=}"
+
   : "${BDS_PROPERTIES:=}"
 
   : "${RCON_RETRIES:=5}"
