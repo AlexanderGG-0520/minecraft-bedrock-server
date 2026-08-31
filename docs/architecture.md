@@ -33,7 +33,7 @@ It must not accumulate BDS installation, S3 delivery, world mutation, pack owner
 | `s3_client.sh` | Configure S3-compatible MinIO `mc` access |
 | `content_assets.sh` | Fetch behavior/resource packs and delegate activation to managed-content policy |
 | `world_pack_binding.sh` | Resolve managed pack manifests and ownership-aware world behavior/resource pack bindings |
-| `server_install.sh` | Resolve, download, install, adopt, and validate managed BDS installation state |
+| `server_install.sh` | Resolve official/custom sources, download, install, adopt, and validate managed BDS installation state |
 | `server_properties.sh` | Apply supported environment overrides to `server.properties` |
 | `world_install.sh` | Validate, fingerprint, and atomically bootstrap/replace worlds from an external archive |
 | `rcon.sh` | Execute RCON commands, startup commands, and serialize stop requests |
@@ -96,6 +96,14 @@ It records:
 `.bds-version` is retained for compatibility and legacy-state adoption, but it is no longer the sole source of truth.
 
 Pinned/custom managed state is not silently replaced when the requested state changes. `FORCE_REINSTALL=true` is required for an intentional incompatible replacement. Floating `latest` and `stable` channels may update within the same managed mode.
+
+Official BDS modes and custom sources have deliberately different source-identity rules:
+
+- `custom-url` remains source-strict and includes the URL fingerprint in compatibility matching;
+- official `latest`, `stable`, and explicit `version` modes are identified by managed mode plus requested/resolved artifact version;
+- an official CDN or hostname migration for the same artifact version refreshes source metadata without forcing payload replacement.
+
+Latest official resolution uses the Minecraft Services download-links API first and falls back to the official Bedrock server download page. The fallback accepts the current `minecraft.net/bedrockdedicatedserver` URL shape and the legacy AzureEdge shape. See [`real-bds-compatibility.md`](real-bds-compatibility.md).
 
 ### Managed pack ownership
 
@@ -270,9 +278,9 @@ The readiness file is removed when the process exits or shutdown begins.
 
 Shutdown attempts application-level RCON stop first when enabled, then uses bounded process-signal fallbacks. Duplicate RCON stop paths are serialized with an ephemeral lock outside the PVC.
 
-## Regression boundary
+## Regression and compatibility boundary
 
-The required status workflow covers five layers:
+The required `Status checks` workflow covers five deterministic layers:
 
 1. Bash syntax and ShellCheck;
 2. module-level lifecycle/state smoke tests;
@@ -293,16 +301,29 @@ The persistent-state transition matrix intentionally keeps the artifact unavaila
 - legacy `.bds-version` adoption without downloading the artifact again;
 - fail-fast behavior for corrupt, unsupported-future-schema, and unmanaged install metadata.
 
-This matrix is deterministic and uses local fake artifacts. Floating-channel and real-Mojang compatibility belong in a separate periodic compatibility layer so required PR checks are not coupled to external service availability.
+A sixth, deliberately non-required compatibility layer runs against the actual official BDS distribution. `.github/workflows/real-bds-compatibility.yml` runs after runtime-affecting pushes to `main`, on a Monday/Thursday schedule, and on manual dispatch.
+
+The real-BDS harness verifies:
+
+- official source resolution and download;
+- native-library compatibility in the built image;
+- real BDS startup and world creation;
+- Bedrock UDP binding;
+- image healthcheck behavior against the real process;
+- bounded `docker stop`, readiness cleanup, and exit status;
+- reopening the same persistent Docker volume for a second runtime cycle.
+
+This external layer is not a PR merge gate. Mojang/CDN/network availability and upstream distribution changes are a distinct failure domain from deterministic repository correctness. A newly merged runtime change receives an immediate post-merge real-BDS result without allowing an upstream outage to make the PR itself unmergeable.
+
+See [`real-bds-compatibility.md`](real-bds-compatibility.md) for trigger semantics and failure triage.
 
 ## Remaining Minecartainer-class work
 
-The major lifecycle architecture, Bedrock-native managed-state features, and deterministic persistent-volume transition coverage are now present. Remaining work is capability expansion and compatibility hardening rather than another structural rewrite.
+The major lifecycle architecture, Bedrock-native managed-state features, deterministic persistent-volume transition coverage, and real-upstream BDS compatibility monitoring are now present. Remaining work is capability expansion and managed-state evolution rather than another structural rewrite.
 
 Useful next areas include:
 
 - a general managed-state schema migration framework that can explicitly migrate supported old schemas while refusing unknown future schemas;
-- periodic integration against a real pinned BDS artifact, separate from deterministic required PR checks;
 - optional live RCON reload workflows for player-access changes applied while a server is already running;
 - validation of manifest dependency graphs and paired behavior/resource pack relationships;
 - richer new-world bootstrap workflows without violating the rule that binding must not manufacture a fake world directory;
