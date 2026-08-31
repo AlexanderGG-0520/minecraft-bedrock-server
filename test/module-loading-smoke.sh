@@ -14,6 +14,8 @@ required_functions=(
   activate_managed_content
   install_behaviorpacks
   install_resourcepacks
+  manage_player_access
+  bind_managed_world_packs
   apply_server_properties_from_env
   rcon_exec
   run_rcon_startup_commands
