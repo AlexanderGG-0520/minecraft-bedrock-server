@@ -11,8 +11,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "${tmp_dir}/fixture" "${tmp_dir}/data"
-chmod 0777 "${tmp_dir}/data"
+mkdir -p "${tmp_dir}/fixture" "${tmp_dir}/install-data" "${tmp_dir}/runtime-data"
+chmod 0777 "${tmp_dir}/install-data" "${tmp_dir}/runtime-data"
 
 cat > "${tmp_dir}/fake-bedrock.c" <<'EOF'
 #include <signal.h>
@@ -53,15 +53,36 @@ with zipfile.ZipFile(root / "bedrock-server-9.9.9.9.zip", "w", zipfile.ZIP_DEFLA
         zf.write(path, path.name)
 PY
 
+common_args=(
+  -e EULA=true
+  -e VERSION=9.9.9.9
+  -e BDS_DOWNLOAD_URL=file:///fixture/bedrock-server-9.9.9.9.zip
+  -v "${tmp_dir}/bedrock-server-9.9.9.9.zip:/fixture/bedrock-server-9.9.9.9.zip:ro"
+)
+
+# install-only must not depend on runtime-only RCON credentials.
+docker run --rm \
+  "${common_args[@]}" \
+  -v "${tmp_dir}/install-data:/data" \
+  "${image}" install-only >/dev/null
+
+install_marker="${tmp_dir}/install-data/.bds-install.json"
+[[ -f "${install_marker}" ]] || {
+  printf 'install-only did not create managed BDS install marker\n' >&2
+  exit 1
+}
+[[ ! -e "${tmp_dir}/install-data/.ready" ]] || {
+  printf 'install-only created runtime readiness state\n' >&2
+  exit 1
+}
+
+# Normal runtime lifecycle: install, become ready, then terminate cleanly.
 docker run -d \
   --name "${container_name}" \
-  -e EULA=true \
+  "${common_args[@]}" \
   -e ENABLE_RCON=false \
   -e READY_DELAY=1 \
-  -e VERSION=9.9.9.9 \
-  -e BDS_DOWNLOAD_URL=file:///fixture/bedrock-server-9.9.9.9.zip \
-  -v "${tmp_dir}/bedrock-server-9.9.9.9.zip:/fixture/bedrock-server-9.9.9.9.zip:ro" \
-  -v "${tmp_dir}/data:/data" \
+  -v "${tmp_dir}/runtime-data:/data" \
   "${image}" >/dev/null
 
 ready=0
@@ -85,12 +106,12 @@ if (( ready != 1 )); then
   exit 1
 fi
 
-[[ -x "${tmp_dir}/data/bedrock_server" ]] || {
+[[ -x "${tmp_dir}/runtime-data/bedrock_server" ]] || {
   printf 'bedrock_server was not installed\n' >&2
   exit 1
 }
 
-marker="${tmp_dir}/data/.bds-install.json"
+marker="${tmp_dir}/runtime-data/.bds-install.json"
 [[ -f "${marker}" ]] || {
   printf 'managed BDS install marker was not created\n' >&2
   exit 1
@@ -100,7 +121,7 @@ marker="${tmp_dir}/data/.bds-install.json"
   exit 1
 }
 
-[[ -f "${tmp_dir}/data/.ready" ]] || {
+[[ -f "${tmp_dir}/runtime-data/.ready" ]] || {
   printf 'readiness file was not created\n' >&2
   exit 1
 }
@@ -114,7 +135,7 @@ exit_code="$(docker inspect -f '{{.State.ExitCode}}' "${container_name}")"
   exit 1
 }
 
-[[ ! -e "${tmp_dir}/data/.ready" ]] || {
+[[ ! -e "${tmp_dir}/runtime-data/.ready" ]] || {
   printf 'readiness file remained after shutdown\n' >&2
   exit 1
 }
