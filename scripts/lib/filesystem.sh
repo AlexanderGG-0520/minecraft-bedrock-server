@@ -142,16 +142,25 @@ fix_ownership_if_needed() {
 }
 
 drop_privileges_if_needed() {
-  if [[ "$(id -u)" -ne 0 || ( "${RUN_UID}" == "0" && "${RUN_GID}" == "0" ) ]]; then
+  local current_uid current_gid mode
+  current_uid="$(id -u)"
+  current_gid="$(id -g)"
+  mode="run"
+  is_true "${INSTALL_ONLY:-false}" && mode="install-only"
+
+  if [[ "${current_uid}" == "${RUN_UID}" && "${current_gid}" == "${RUN_GID}" ]]; then
     return 0
   fi
 
-  log INFO "Dropping privileges to ${RUN_UID}:${RUN_GID} before install/runtime lifecycle"
-  export RUN_UID RUN_GID INSTALL_ONLY
-
-  if is_true "${INSTALL_ONLY:-false}"; then
-    exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh install-only
+  if [[ "${current_uid}" != "0" ]]; then
+    die "Container is already non-root as ${current_uid}:${current_gid}, but RUN_UID:RUN_GID requests ${RUN_UID}:${RUN_GID}"
   fi
 
-  exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh run
+  if [[ "${RUN_UID}" == "0" && "${RUN_GID}" == "0" ]]; then
+    return 0
+  fi
+
+  log INFO "Dropping privileges before lifecycle: ${RUN_UID}:${RUN_GID} (mode=${mode})"
+  export RUN_UID RUN_GID INSTALL_ONLY
+  exec gosu "${RUN_UID}:${RUN_GID}" /usr/local/bin/docker-entrypoint.sh "${mode}"
 }
