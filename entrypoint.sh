@@ -21,6 +21,8 @@ source "${LIB_DIR}/common.sh"
 source "${LIB_DIR}/config.sh"
 # shellcheck source=scripts/lib/filesystem.sh
 source "${LIB_DIR}/filesystem.sh"
+# shellcheck source=scripts/lib/managed_state.sh
+source "${LIB_DIR}/managed_state.sh"
 # shellcheck source=scripts/lib/content_state.sh
 source "${LIB_DIR}/content_state.sh"
 # shellcheck source=scripts/lib/player_access.sh
