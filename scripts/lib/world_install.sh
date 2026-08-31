@@ -76,6 +76,12 @@ validate_zip_entries_safe() {
     fi
   done < <(unzip -Z1 "${archive}" 2>/dev/null) || return 1
 
+  if zipinfo -l "${archive}" 2>/dev/null \
+    | awk '$1 ~ /^l/ { found=1 } END { exit(found ? 0 : 1) }'; then
+    log ERROR "World archive contains symbolic-link entries"
+    return 1
+  fi
+
   return 0
 }
 
