@@ -53,6 +53,32 @@ official_bds_url_for_version() {
   printf 'https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-%s.zip\n' "${version}"
 }
 
+extract_official_bds_url_from_links_json() {
+  local payload="$1"
+
+  printf '%s' "${payload}" \
+    | jq -er '
+        .result.links
+        | arrays
+        | map(select(.downloadType == "serverBedrockLinux"))
+        | first
+        | .downloadUrl
+        | select(type == "string" and length > 0)
+      ' 2>/dev/null
+}
+
+resolve_latest_bds_url_from_services() {
+  local payload url
+
+  payload="$(curl -fsSL 'https://net.web.minecraft-services.net/api/v1.0/download/links')" \
+    || return 1
+  url="$(extract_official_bds_url_from_links_json "${payload}" || true)"
+  [[ -n "${url}" ]] || return 1
+  extract_bds_version_from_url "${url}" >/dev/null || return 1
+
+  printf '%s\n' "${url}"
+}
+
 extract_official_bds_url_from_page() {
   local page="$1"
   local url
@@ -92,6 +118,13 @@ resolve_bds_download_url() {
   fi
 
   local page url
+  url="$(resolve_latest_bds_url_from_services || true)"
+  if [[ -n "${url}" ]]; then
+    printf '%s\n' "${url}"
+    return 0
+  fi
+
+  log WARN "Minecraft Services BDS lookup failed; falling back to the official download page"
   page="$(curl -fsSL "https://www.minecraft.net/en-us/download/server/bedrock")" \
     || die "Failed to fetch official Bedrock server download page"
   url="$(extract_official_bds_url_from_page "${page}" || true)"
