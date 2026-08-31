@@ -145,6 +145,10 @@ write_bds_install_marker() {
     die "Failed to build BDS install marker"
   fi
 
+  chmod 0644 "${tmp}" || {
+    safe_rm_f "${tmp}" || true
+    die "Failed to set BDS install marker permissions"
+  }
   safe_mv_f "${tmp}" "${marker}" || die "Failed to activate BDS install marker"
 }
 
