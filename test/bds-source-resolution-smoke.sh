@@ -20,6 +20,30 @@ legacy_url="https://minecraft.azureedge.net/bin-linux/bedrock-server-${version}.
   exit 1
 }
 
+services_payload="$(jq -nc \
+  --arg linux "${current_url}" \
+  '{result:{links:[
+    {downloadType:"serverBedrockWindows",downloadUrl:"https://example.invalid/windows.zip"},
+    {downloadType:"serverBedrockLinux",downloadUrl:$linux}
+  ]}}')"
+[[ "$(extract_official_bds_url_from_links_json "${services_payload}")" == "${current_url}" ]] || {
+  printf 'Minecraft Services Linux BDS URL was not detected\n' >&2
+  exit 1
+}
+if extract_official_bds_url_from_links_json '{"result":{"links":[]}}' >/dev/null 2>&1; then
+  printf 'Minecraft Services parser accepted a payload without serverBedrockLinux\n' >&2
+  exit 1
+fi
+
+curl() {
+  printf '%s' "${services_payload}"
+}
+[[ "$(resolve_latest_bds_url_from_services)" == "${current_url}" ]] || {
+  printf 'latest BDS resolution did not use Minecraft Services response\n' >&2
+  exit 1
+}
+unset -f curl
+
 current_page="<a href=\"${current_url}\">Linux</a>"
 [[ "$(extract_official_bds_url_from_page "${current_page}")" == "${current_url}" ]] || {
   printf 'current official download-page URL was not detected\n' >&2
@@ -51,6 +75,32 @@ BDS_STABLE_VERSION="${version}"
   printf 'stable channel did not resolve to the current official endpoint\n' >&2
   exit 1
 }
+
+# Latest resolution falls back to the official download page when the
+# Minecraft Services endpoint is unavailable.
+BDS_CHANNEL=latest
+BDS_STABLE_VERSION=""
+VERSION=latest
+curl() {
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      https://net.web.minecraft-services.net/*)
+        return 22
+        ;;
+      https://www.minecraft.net/en-us/download/server/bedrock)
+        printf '%s' "${current_page}"
+        return 0
+        ;;
+    esac
+  done
+  return 22
+}
+[[ "$(resolve_bds_download_url)" == "${current_url}" ]] || {
+  printf 'latest BDS resolution did not fall back to the official download page\n' >&2
+  exit 1
+}
+unset -f curl
 
 # An official CDN/URL move must not make an unchanged artifact incompatible.
 touch "${DATA_DIR}/bedrock_server"
