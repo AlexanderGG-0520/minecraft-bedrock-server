@@ -60,6 +60,8 @@ managed_state_ensure_current() {
   local migration_fn="$4"
   local context="$5"
   local current_version="${6:-${MANAGED_STATE_SCHEMA_VERSION}}"
+  shift 6 || true
+  local validator_args=("$@")
   local version next_version marker_dir marker_base working next_tmp
 
   [[ -f "${marker}" ]] || return 0
@@ -72,7 +74,7 @@ managed_state_ensure_current() {
   if (( version == current_version )); then
     managed_state_validate_envelope "${marker}" "${state_type}" "${current_version}" \
       || die "Invalid/corrupt ${context} envelope: ${marker}"
-    "${validator_fn}" "${marker}" \
+    "${validator_fn}" "${marker}" "${validator_args[@]}" \
       || die "Invalid/corrupt ${context}: ${marker}"
     return 0
   fi
@@ -104,7 +106,7 @@ managed_state_ensure_current() {
 
   managed_state_validate_envelope "${working}" "${state_type}" "${current_version}" \
     || { safe_rm_f "${working}" || true; die "Migrated ${context} has an invalid envelope"; }
-  "${validator_fn}" "${working}" \
+  "${validator_fn}" "${working}" "${validator_args[@]}" \
     || { safe_rm_f "${working}" || true; die "Migrated ${context} failed semantic validation"; }
   chmod 0644 "${working}" \
     || { safe_rm_f "${working}" || true; die "Failed to set migrated ${context} permissions"; }
