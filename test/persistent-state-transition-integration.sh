@@ -6,6 +6,14 @@ tmp_dir="$(mktemp -d)"
 data_dir="${tmp_dir}/data"
 pack_a_dir="${tmp_dir}/behavior-a"
 pack_b_dir="${tmp_dir}/behavior-b"
+current_case="setup"
+
+report_error() {
+  local status=$?
+  printf 'persistent transition failed: case=%s line=%s command=%s exit=%s\n' \
+    "${current_case}" "${BASH_LINENO[0]:-${LINENO}}" "${BASH_COMMAND}" "${status}" >&2
+  return "${status}"
+}
 
 cleanup() {
   local status=$?
@@ -25,6 +33,7 @@ cleanup() {
 
   return "${status}"
 }
+trap report_error ERR
 trap cleanup EXIT
 
 mkdir -p \
@@ -114,7 +123,11 @@ for version, sentinel in (("1.0.0.1", "artifact-a\n"), ("1.0.0.2", "artifact-b\n
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
         for path in fixture.iterdir():
             zf.write(path, path.name)
-        zf.writestr("fixture-version.txt", sentinel)
+        info = zipfile.ZipInfo("fixture-version.txt")
+        info.create_system = 3
+        info.external_attr = 0o100644 << 16
+        info.compress_type = zipfile.ZIP_DEFLATED
+        zf.writestr(info, sentinel)
 PY
 
 run_install() {
@@ -186,6 +199,7 @@ state_b_prune_env=(
   -e WORLD_PACKS_REMOVE_EXTRA=true
 )
 
+current_case="initial-managed-install"
 printf '==> initial managed install\n'
 run_install \
   1.0.0.1 \
@@ -211,6 +225,7 @@ assert_jq 'map(.pack_id) == ["11111111-1111-4111-8111-111111111111"]' \
   "${data_dir}/worlds/Transition World/world_behavior_packs.json" \
   'initial managed world pack binding is incorrect'
 
+current_case="idempotent-restart"
 printf '==> idempotent restart without artifact availability\n'
 run_install \
   1.0.0.1 \
@@ -224,6 +239,7 @@ run_install \
   exit 1
 }
 
+current_case="inject-operator-owned-state"
 printf '==> add operator-owned state\n'
 root_data '
   set -Eeuo pipefail
@@ -246,6 +262,7 @@ root_data '
   find /data -type f -name "*.json" -exec chmod 0644 {} +
 '
 
+current_case="preserve-with-remove-extra-disabled"
 printf '==> preserve stale managed state while remove-extra is disabled\n'
 run_install \
   1.0.0.1 \
@@ -275,6 +292,7 @@ assert_jq '([.[].pack_id] | sort) == ["11111111-1111-4111-8111-111111111111","22
   exit 1
 }
 
+current_case="prune-runtime-owned-state"
 printf '==> prune only stale runtime-owned state\n'
 run_install \
   1.0.0.1 \
@@ -304,6 +322,7 @@ assert_jq '([.[].pack_id] | sort) == ["22222222-2222-4222-8222-222222222222","99
   exit 1
 }
 
+current_case="reject-incompatible-replacement"
 printf '==> reject incompatible pinned/custom replacement without force\n'
 rejection_log="${tmp_dir}/rejection.log"
 if run_install \
@@ -328,6 +347,7 @@ assert_jq '.resolved_version == "1.0.0.1"' \
   "${data_dir}/.bds-install.json" \
   'rejected replacement mutated the managed install marker'
 
+current_case="force-intentional-replacement"
 printf '==> force intentional pinned/custom replacement\n'
 run_install \
   1.0.0.2 \
@@ -357,6 +377,7 @@ grep -q '^operator-sentinel=keep$' "${data_dir}/server.properties" || {
   exit 1
 }
 
+current_case="recover-missing-executable"
 printf '==> recover when managed executable is missing\n'
 root_data 'rm -f /data/bedrock_server'
 run_install \
@@ -370,6 +391,7 @@ run_install \
   exit 1
 }
 
+current_case="legacy-version-adoption"
 printf '==> adopt legacy .bds-version state without redownload\n'
 root_data 'rm -f /data/.bds-install.json'
 run_install \
@@ -382,6 +404,7 @@ assert_jq '.resolved_version == "1.0.0.2" and .schema_version == 1' \
   "${data_dir}/.bds-install.json" \
   'legacy .bds-version state was not adopted'
 
+current_case="reject-corrupt-marker"
 printf '==> reject corrupt managed install metadata\n'
 root_data 'cp /data/.bds-install.json /data/.bds-install.good && printf "{invalid\n" > /data/.bds-install.json && chown 1000:1000 /data/.bds-install.json && chmod 0644 /data/.bds-install.json'
 corrupt_log="${tmp_dir}/corrupt.log"
@@ -401,6 +424,7 @@ grep -q 'Invalid/corrupt BDS install marker' "${corrupt_log}" || {
 }
 root_data 'mv /data/.bds-install.good /data/.bds-install.json && chown 1000:1000 /data/.bds-install.json && chmod 0644 /data/.bds-install.json'
 
+current_case="reject-future-schema"
 printf '==> reject unsupported future managed-state schema\n'
 root_data 'cp /data/.bds-install.json /data/.bds-install.good && tmp=$(mktemp /data/.bds-install.future.XXXXXX) && jq ".schema_version = 2" /data/.bds-install.json > "$tmp" && mv "$tmp" /data/.bds-install.json && chown 1000:1000 /data/.bds-install.json && chmod 0644 /data/.bds-install.json'
 future_log="${tmp_dir}/future.log"
@@ -420,6 +444,7 @@ grep -q 'Unsupported BDS install marker schema' "${future_log}" || {
 }
 root_data 'mv /data/.bds-install.good /data/.bds-install.json && chown 1000:1000 /data/.bds-install.json && chmod 0644 /data/.bds-install.json'
 
+current_case="reject-unmanaged-executable"
 printf '==> reject unmanaged executable without compatible metadata\n'
 root_data 'cp /data/.bds-install.json /data/.bds-install.good && cp /data/.bds-version /data/.bds-version.good && rm -f /data/.bds-install.json /data/.bds-version'
 unmanaged_log="${tmp_dir}/unmanaged.log"
@@ -439,6 +464,7 @@ grep -q 'without compatible managed install metadata' "${unmanaged_log}" || {
 }
 root_data 'mv /data/.bds-install.good /data/.bds-install.json && mv /data/.bds-version.good /data/.bds-version && chown 1000:1000 /data/.bds-install.json /data/.bds-version && chmod 0644 /data/.bds-install.json /data/.bds-version'
 
+current_case="final-persistent-state"
 assert_jq '([.[].name] | sort) == ["ManagedB","OperatorPlayer"]' \
   "${data_dir}/allowlist.json" \
   'player access drifted after BDS transition matrix'
