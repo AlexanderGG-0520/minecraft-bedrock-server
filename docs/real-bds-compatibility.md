@@ -84,31 +84,41 @@ This is intentional. The purpose of this layer is to detect compatibility betwee
 
 RCON startup commands, RCON stop behavior, and fallback shutdown semantics have their own deterministic test boundary. A failure in optional control-plane behavior should not be confused with an upstream BDS binary failing to start.
 
-## Official download URL identity
+## Official source resolution and identity
 
-Mojang has changed the official Linux BDS distribution host over time.
+Latest BDS resolution does not depend on scraping the user-facing download page as its only source.
 
-The current canonical version URL is treated as:
+The primary lookup is Minecraft Services:
+
+```text
+https://net.web.minecraft-services.net/api/v1.0/download/links
+```
+
+The runtime selects the `serverBedrockLinux` entry and validates that the returned URL contains a recognizable `bedrock-server-<version>.zip` artifact name.
+
+If the Services lookup is unavailable or does not provide a valid Linux BDS URL, the runtime falls back to the official Bedrock server download page. The fallback parser accepts both the current `minecraft.net/bedrockdedicatedserver` URL shape and the legacy AzureEdge shape.
+
+For explicit official versions and `BDS_CHANNEL=stable`, the current canonical version URL is generated as:
 
 ```text
 https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-<version>.zip
 ```
 
-The latest-version page parser also accepts the legacy AzureEdge URL format as a fallback.
-
 For managed installation identity:
 
 - `custom-url` remains source-strict: changing the URL fingerprint is an incompatible source transition;
 - `latest`, `stable`, and explicit official `version` modes are identified by mode/requested/resolved artifact version rather than a particular Mojang CDN hostname;
-- when the official URL changes but the resolved artifact version does not, the runtime refreshes `source_fingerprint` metadata without reinstalling the payload.
+- when an official URL changes but the resolved artifact version does not, the runtime refreshes `source_fingerprint` metadata without reinstalling the payload.
 
 This distinction prevents a Mojang CDN migration from forcing operators to set `FORCE_REINSTALL=true` for an otherwise unchanged official BDS installation.
+
+`test/bds-source-resolution-smoke.sh` exercises the Services JSON parser, current and legacy page URL parsing, page fallback, official source-metadata refresh, and custom-source strictness without external network access.
 
 ## Failure triage
 
 When a real compatibility run fails, classify the earliest failing boundary:
 
-1. **official page resolution** — the download-page structure or URL format changed;
+1. **official source resolution** — the Minecraft Services response or download-page fallback changed;
 2. **artifact download** — upstream/CDN/network failure or retired explicit version;
 3. **install/native dependency check** — archive layout or Linux ABI requirements changed;
 4. **runtime process exit** — BDS no longer starts with the current image/runtime configuration;
