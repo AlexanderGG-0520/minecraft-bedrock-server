@@ -237,7 +237,7 @@ phase_bootstrap() {
     >/dev/null
 
   assert_artifact artifact-a
-  assert_jq '.resolved_version == "1.0.0.1" and .mode == "custom-url"' \
+  assert_jq '.resolved_version == "1.0.0.1" and .mode == "custom-url" and .schema_version == 2 and .state_type == "bds-install"' \
     "${data_dir}/.bds-install.json" \
     'initial managed install marker is incorrect'
   assert_jq 'map(.name) == ["ManagedA"]' \
@@ -384,7 +384,7 @@ phase_install_transitions() {
     >/dev/null
 
   assert_artifact artifact-b
-  assert_jq '.resolved_version == "1.0.0.2"' \
+  assert_jq '.resolved_version == "1.0.0.2" and .schema_version == 2 and .state_type == "bds-install"' \
     "${data_dir}/.bds-install.json" \
     'forced replacement did not update the managed install marker'
   [[ -f "${data_dir}/worlds/Transition World/operator-sentinel.txt" ]] || {
@@ -423,9 +423,9 @@ phase_install_transitions() {
     "${pack_b_dir}" \
     "${state_b_prune_env[@]}" \
     >/dev/null
-  assert_jq '.resolved_version == "1.0.0.2" and .schema_version == 1' \
+  assert_jq '.resolved_version == "1.0.0.2" and .schema_version == 2 and .state_type == "bds-install"' \
     "${data_dir}/.bds-install.json" \
-    'legacy .bds-version state was not adopted'
+    'legacy .bds-version state was not adopted into the current managed schema'
 
   printf 'persistent transition install state: ok\n'
 }
@@ -453,7 +453,7 @@ phase_invalid_metadata() {
 
   current_case="reject-future-schema"
   printf '==> reject unsupported future managed-state schema\n'
-  root_data 'cp /data/.bds-install.json /data/.bds-install.good && tmp=$(mktemp /data/.bds-install.future.XXXXXX) && jq ".schema_version = 2" /data/.bds-install.json > "$tmp" && mv "$tmp" /data/.bds-install.json && chown 1000:1000 /data/.bds-install.json && chmod 0644 /data/.bds-install.json'
+  root_data 'cp /data/.bds-install.json /data/.bds-install.good && tmp=$(mktemp /data/.bds-install.future.XXXXXX) && jq ".schema_version = 3" /data/.bds-install.json > "$tmp" && mv "$tmp" /data/.bds-install.json && chown 1000:1000 /data/.bds-install.json && chmod 0644 /data/.bds-install.json'
   local future_log="${workspace}/future.log"
   if run_install \
     1.0.0.2 \
@@ -464,7 +464,7 @@ phase_invalid_metadata() {
     printf 'future managed install schema was accepted\n' >&2
     return 1
   fi
-  grep -q 'Unsupported BDS install marker schema' "${future_log}" || {
+  grep -q 'Unsupported future BDS install marker schema' "${future_log}" || {
     cat "${future_log}" >&2
     printf 'future marker failed for an unexpected reason\n' >&2
     return 1
@@ -502,6 +502,18 @@ phase_verify() {
   assert_jq '([.[].pack_id] | sort) == ["22222222-2222-4222-8222-222222222222","99999999-9999-4999-8999-999999999999"]' \
     "${data_dir}/worlds/Transition World/world_behavior_packs.json" \
     'world pack bindings drifted after BDS transition matrix'
+  assert_jq '.schema_version == 2 and .state_type == "bds-install"' \
+    "${data_dir}/.bds-install.json" \
+    'BDS install metadata did not remain on current schema'
+  assert_jq '.schema_version == 2 and .state_type == "content-assets"' \
+    "${data_dir}/.managed/content-assets/behavior_packs.json" \
+    'content ownership metadata did not remain on current schema'
+  assert_jq '.schema_version == 2 and .state_type == "player-access"' \
+    "${data_dir}/.managed/player-access/allowlist.json" \
+    'player-access metadata did not remain on current schema'
+  assert_jq '.schema_version == 2 and .state_type == "world-pack-binding"' \
+    "${data_dir}/.managed/world-packs/Transition World/behavior.json" \
+    'world-pack metadata did not remain on current schema'
   [[ -f "${data_dir}/worlds/Transition World/operator-sentinel.txt" ]] || {
     printf 'persistent world state disappeared during transition matrix\n' >&2
     return 1
