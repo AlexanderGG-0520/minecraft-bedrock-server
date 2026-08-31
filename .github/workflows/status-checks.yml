@@ -73,6 +73,60 @@ jobs:
       - name: Run container lifecycle integration
         run: bash test/container-runtime-integration.sh minecraft-bedrock-server:ci-latest
 
+      - name: Prepare persistent transition fixtures
+        run: |
+          workspace="${RUNNER_TEMP}/minecraft-bedrock-transition-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "TRANSITION_WORKDIR=${workspace}" >> "${GITHUB_ENV}"
+          bash test/persistent-state-transition-integration.sh \
+            minecraft-bedrock-server:ci-latest \
+            "${workspace}" \
+            setup
+
+      - name: Persistent transition - bootstrap and idempotency
+        run: |
+          bash test/persistent-state-transition-integration.sh \
+            minecraft-bedrock-server:ci-latest \
+            "${TRANSITION_WORKDIR}" \
+            bootstrap
+
+      - name: Persistent transition - ownership reconciliation
+        run: |
+          bash test/persistent-state-transition-integration.sh \
+            minecraft-bedrock-server:ci-latest \
+            "${TRANSITION_WORKDIR}" \
+            ownership
+
+      - name: Persistent transition - install replacement and recovery
+        run: |
+          bash test/persistent-state-transition-integration.sh \
+            minecraft-bedrock-server:ci-latest \
+            "${TRANSITION_WORKDIR}" \
+            install-transitions
+
+      - name: Persistent transition - invalid metadata refusal
+        run: |
+          bash test/persistent-state-transition-integration.sh \
+            minecraft-bedrock-server:ci-latest \
+            "${TRANSITION_WORKDIR}" \
+            invalid-metadata
+
+      - name: Persistent transition - final state verification
+        run: |
+          bash test/persistent-state-transition-integration.sh \
+            minecraft-bedrock-server:ci-latest \
+            "${TRANSITION_WORKDIR}" \
+            verify
+
+      - name: Clean persistent transition workspace
+        if: always()
+        run: |
+          if [[ -n "${TRANSITION_WORKDIR:-}" ]]; then
+            bash test/persistent-state-transition-integration.sh \
+              minecraft-bedrock-server:ci-latest \
+              "${TRANSITION_WORKDIR}" \
+              cleanup
+          fi
+
       - name: Build stable target
         run: |
           docker build \
