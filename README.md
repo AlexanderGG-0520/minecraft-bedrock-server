@@ -8,199 +8,244 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Kubernetes](https://img.shields.io/badge/kubernetes-oriented-blue)
 
-A Kubernetes-oriented container image for **Minecraft Bedrock Dedicated Server (BDS)**, designed around persistent `/data`, explicit startup behavior, S3-compatible asset delivery, non-root runtime, health checks, and RCON-aware shutdown.
+A Kubernetes-oriented container image for **Minecraft Bedrock Dedicated Server (BDS)** built around persistent-state safety, explicit lifecycle phases, S3-compatible content delivery, non-root runtime, health checks, and RCON-aware control.
 
 ```bash
 docker pull ghcr.io/alexandergg-0520/minecraft-bedrock-server:latest
 ```
 
-Published image locations:
+Published as:
 
 ```text
-GHCR:
 ghcr.io/alexandergg-0520/minecraft-bedrock-server
-
-Docker Hub:
 alecjp02/minecraft-bedrock-server
 ```
 
 ## Why does this project exist?
 
-There are already mature Bedrock server images, especially [`itzg/docker-minecraft-bedrock-server`](https://github.com/itzg/docker-minecraft-bedrock-server). This project is not trying to win by having the largest environment-variable surface or by automating every possible Bedrock workflow.
+There are already mature Bedrock server images, especially [`itzg/docker-minecraft-bedrock-server`](https://github.com/itzg/docker-minecraft-bedrock-server). This project is not trying to win by exposing the largest number of environment variables.
 
-It exists for a narrower operational model:
+It exists for a specific operational model:
 
-- a container or Kubernetes Pod should be replaceable;
-- the world and server state in `/data` should survive that replacement;
-- Bedrock server installation should happen predictably at startup without overwriting worlds or key configuration files;
-- behavior packs, resource packs, and an initial world archive should be deliverable independently from the container image;
-- Kubernetes termination should use Minecraft-aware RCON shutdown when possible instead of treating BDS as an arbitrary Unix process;
-- the normal runtime should not require root;
-- invalid required configuration should fail before the server is started.
+- Pods and containers are disposable;
+- `/data` is long-lived state;
+- a server update must not casually overwrite worlds or operator configuration;
+- incompatible persistent state should fail visibly rather than be guessed;
+- behavior packs, resource packs, and initial worlds can have a lifecycle independent from the OCI image;
+- destructive synchronization must have an ownership boundary;
+- installation should be invokable independently from runtime;
+- Kubernetes termination should ask Minecraft to stop cleanly before falling back to process signals;
+- normal runtime should not require root.
 
-The image therefore focuses on **container lifecycle, persistent state, external asset delivery, and orchestration behavior** rather than broad end-user automation.
+The image therefore focuses on **lifecycle, state ownership, orchestration, and failure boundaries** rather than broad one-click automation.
 
 ## Relationship to Minecartainer
 
-[`Minecartainer`](https://github.com/AlexanderGG-0520/minecartainer) is the Java Edition project built around the same general operational direction: long-lived Minecraft state, disposable compute, explicit lifecycle boundaries, Kubernetes, GitOps, object storage, and graceful shutdown.
+[`Minecartainer`](https://github.com/AlexanderGG-0520/minecartainer) is the Java Edition project built around the same operational direction.
 
-The Bedrock image is currently **less architecturally mature than Minecartainer**. That distinction is intentional to document rather than hide.
+The Bedrock implementation does not copy Java-specific concepts such as JVM tuning, mod loaders, server JAR types, or modpack providers. It instead targets the same class of operational guarantees using Bedrock-native state.
 
-Today, this repository already has:
+The core lifecycle is now intentionally similar:
 
-- persistent `/data` handling;
-- a conceptual install phase followed by runtime;
-- preservation of worlds and key BDS configuration during server replacement;
-- S3-compatible delivery for packs and initial world archives;
-- RCON-aware graceful shutdown;
-- health checks;
-- non-root runtime by default;
-- static shell checks and image-build CI.
+- a thin composition-root entrypoint;
+- explicit install and runtime phases;
+- first-class install-only mode;
+- managed server-install metadata;
+- lifecycle hooks;
+- safe filesystem helpers;
+- ownership-aware external content activation;
+- guarded world replacement;
+- RCON startup/shutdown control;
+- module-level smoke tests and container lifecycle integration.
 
-It does **not yet** have several of the stronger lifecycle and state-safety mechanisms used by Minecartainer, such as:
+Remaining parity work is mostly **Bedrock-specific feature expansion**, such as explicit allowlist/permissions ownership and richer pack/world workflows, rather than another monolithic entrypoint rewrite.
 
-- a first-class independently invokable install-only lifecycle;
-- managed installation metadata comparable to Minecartainer's install markers;
-- strong ownership/state tracking for every externally delivered asset;
-- lifecycle hook directories;
-- the same depth of runtime smoke/regression coverage;
-- the same level of fail-fast protection against ambiguous persistent-volume state.
+See [`docs/architecture.md`](docs/architecture.md) for the responsibility and state model.
 
-So this README describes the Bedrock image **as it behaves now**, not the architecture it may grow into later.
+## Design model
 
-## Design goals
+### `/data` is state, not scratch space
 
-### 1. Treat `/data` as persistent state
+The same PVC may survive many image upgrades and Pod replacements. The runtime therefore treats changes under `/data` as state transitions.
 
-BDS itself is downloaded into `/data`, and the same directory also contains worlds and configuration. Container replacement must therefore avoid casually replacing valuable state.
+Important paths include:
 
-When a BDS version is installed or upgraded, the entrypoint preserves:
+```text
+/data/
+├── bedrock_server
+├── .bds-install.json
+├── .bds-version
+├── .ready
+├── .managed/
+│   ├── content-assets/
+│   │   ├── behavior_packs.json
+│   │   └── resource_packs.json
+│   └── world-source.json
+├── server.properties
+├── allowlist.json
+├── permissions.json
+├── worlds/
+├── behavior_packs/
+├── resource_packs/
+└── logs/
+```
 
-- `worlds/`
-- `server.properties`
-- `allowlist.json`
-- `permissions.json`
+Back up `/data` independently. S3 delivery in this image is **not** a world backup system.
 
-The installed BDS version is recorded in `/data/.bds-version` so an already-installed matching version can be reused.
+### Managed BDS installation
 
-### 2. Keep mutable server content outside the image
+`/data/.bds-install.json` is the primary managed-install marker. It records:
 
-Behavior packs, resource packs, and an initial world archive can come from S3-compatible object storage instead of being baked into the OCI image.
+- installation mode;
+- requested version;
+- resolved version;
+- artifact identity;
+- source fingerprint.
 
-This is useful when the image lifecycle and content lifecycle are different. Updating a pack should not inherently require rebuilding the server image.
+`.bds-version` remains for compatibility and legacy adoption.
 
-S3 support in this repository is currently **delivery/bootstrap oriented**. It is not a world-backup system and does not continuously upload `/data` back to object storage.
+A pinned/custom installation is not silently replaced when requested state changes. An incompatible replacement requires:
 
-### 3. Prefer Minecraft-aware shutdown
+```yaml
+FORCE_REINSTALL: "true"
+```
 
-With RCON enabled, termination attempts `stop` through `mcrcon` first. If that path is unavailable or times out, the entrypoint falls back to Unix signals and eventually a forced kill.
+Use that only when replacement is intentional. Floating `latest` and `stable` modes may update within the same managed mode.
 
-This matters on Kubernetes because world saving has to complete inside the Pod termination grace period.
+### Managed pack ownership
 
-### 4. Run BDS without root by default
+Behavior/resource pack activation tracks which **top-level active entries** were created or adopted by this runtime.
 
-The image defines a `minecraft` user and group with UID/GID `1000` and runs as that user by default.
+The default is:
 
-The image can also be started as root when an operator deliberately needs the entrypoint to repair `/data` ownership and then drop privileges with `gosu`, but root is not the normal runtime model.
+```text
+BEHAVIORPACKS_REMOVE_EXTRA=false
+RESOURCEPACKS_REMOVE_EXTRA=false
+```
 
-### 5. Make startup failures visible
+With remove-extra disabled, new managed input is overlaid while existing active content is preserved.
 
-The entrypoint validates required state before launch, including:
+With remove-extra enabled, stale entries are removed only when they were previously recorded as managed. Unowned operator entries are not deleted merely because they are absent from the current input.
 
-- writable `/data`;
-- `EULA=true`;
-- numeric runtime UID/GID values;
-- a non-empty RCON password when RCON is enabled;
-- valid configured port numbers.
+This ownership rule applies to the active `/data/behavior_packs` and `/data/resource_packs` directories. When S3 mirroring itself uses `--remove`, the configured input directory is still treated as the mirror destination, so do not point an authoritative mirror at an input directory containing unrelated files.
 
-A bad deployment should fail visibly instead of starting a partially configured server.
+### Guarded world replacement
 
-## Why these technologies and design choices?
+World S3 delivery is a bootstrap/import mechanism.
 
-### OCI / Docker images
+Existing worlds are preserved by default:
 
-The image packages the Linux runtime, entrypoint, RCON client, S3 client, and required native libraries separately from the host OS. This gives Docker, containerd, CRI-O, and Kubernetes the same server runtime contract.
+```text
+WORLD_INSTALL_ONCE=true
+WORLD_REPLACE=false
+```
 
-BDS itself is intentionally downloaded at runtime instead of being permanently embedded into the image. That keeps the container image release cycle separate from Mojang/Microsoft's BDS release cycle.
+Replacing an existing world requires both:
+
+```yaml
+WORLD_INSTALL_ONCE: "false"
+WORLD_REPLACE: "true"
+```
+
+World archives are checked for ZIP integrity, absolute/traversal paths, and symbolic-link entries before extraction. A successful managed import records a source fingerprint and archive SHA-256 in `/data/.managed/world-source.json`.
+
+## Why these technologies?
+
+### OCI / Docker
+
+The container packages the native runtime libraries, lifecycle implementation, RCON client, and S3 client into one reproducible runtime contract usable by Docker, containerd, CRI-O, and Kubernetes.
+
+BDS itself is resolved at runtime so Mojang's BDS release lifecycle does not require rebuilding this image for every server release.
 
 ### Debian slim
 
-Bedrock Dedicated Server is a native Linux binary with system-library requirements. Debian slim provides a small conventional userspace while still making required libraries and operational tools straightforward to install and inspect.
+BDS is a native Linux binary with ordinary shared-library requirements. Debian slim provides a small, inspectable runtime while keeping required native packages straightforward.
 
 ### Multi-stage builds
 
-`mcrcon`, MinIO `mc`, and `gosu` are built in dedicated stages and only their resulting binaries are copied into the runtime image.
+`mcrcon`, MinIO `mc`, and `gosu` are built in dedicated stages. Compilers and source trees do not remain in the final runtime image.
 
-The Go compiler, C compiler, Git checkout directories, and other build dependencies therefore do not remain in the final runtime image.
+### Bash modules
 
-### Bash entrypoint
+The lifecycle is dominated by filesystem transitions, process management, downloads, environment validation, and signal handling. Bash keeps those operations directly inspectable.
 
-The current lifecycle is mostly filesystem mutation, process orchestration, environment validation, downloads, and signal handling. Bash keeps that path directly inspectable and avoids introducing another resident controller process.
-
-The trade-off is that a large shell entrypoint becomes harder to reason about as lifecycle rules grow. Minecartainer has already shown where stronger separation and regression coverage are useful; the Bedrock implementation will need similar refinement as its behavior expands.
+The entrypoint itself is intentionally thin. Policy lives in modules under `scripts/lib/` so feature growth does not recreate the original monolith.
 
 ### `tini`
 
-`tini` is PID 1. It forwards signals and reaps child processes while the entrypoint owns the Bedrock-specific startup and shutdown behavior.
+`tini` is PID 1, forwards signals, and reaps child processes. Bedrock-specific shutdown policy remains in the runtime modules.
 
 ### RCON + `mcrcon`
 
-Stopping a Minecraft server is an application-level operation, not just a process-level operation. RCON gives the container a way to request BDS shutdown before falling back to `TERM`/`KILL`.
+A Minecraft shutdown is an application-level operation. RCON is attempted before bounded process-signal fallbacks.
 
 ### S3-compatible storage + MinIO `mc`
 
-The S3 API provides a useful boundary between the runtime image and deployable server content. MinIO `mc` supports both MinIO and other S3-compatible endpoints and provides mirror/copy operations suitable for pack delivery and world bootstrap.
+The S3 API is the boundary between the server image and independently managed content such as packs and initial world archives.
 
-### `rsync` and staged pack activation
+### `rsync` + staged activation
 
-Behavior and resource packs are copied into staging directories and then moved into their active locations. This reduces the time where the active pack directory is only partially updated.
+Persistent directories are staged and switched rather than rewritten in place where practical. Managed content additionally carries an explicit ownership list so deletion policy is not equivalent to "delete everything missing from the source."
 
 ## Lifecycle
 
-A normal container start follows this sequence:
+Normal startup:
 
 ```text
 container start
   |
   v
-preflight validation
+preflight
   |
   v
-optional ownership repair (only when started as root)
+optional /data ownership repair when started as root
+  |
+  v
+drop privileges before lifecycle mutation/runtime
+  |
+  v
+pre-install hooks
   |
   v
 install phase
-  |- prepare /data directories
+  |- prepare /data
   |- write eula.txt
-  |- resolve/download BDS when required
-  |- preserve worlds + key configuration on BDS replacement
-  |- verify native library dependencies
-  |- optionally import an initial world ZIP from S3
-  |- optionally sync behavior packs from S3
-  |- activate behavior packs
-  |- optionally sync resource packs from S3
-  |- activate resource packs
+  |- resolve/adopt/install managed BDS state
+  |- verify native dependencies
+  |- optionally import/replace a world archive
+  |- obtain + activate behavior packs
+  |- obtain + activate resource packs
   `- apply server.properties overrides
   |
   v
-runtime phase
-  |- create /data/.ready
-  |- wait READY_DELAY
-  `- start bedrock_server
+post-install hooks
+  |
+  v
+pre-runtime hooks
+  |
+  v
+launch bedrock_server
+  |
+  v
+wait READY_DELAY and verify process still exists
+  |
+  v
+optional RCON_CMDS_STARTUP
+  |
+  v
+create /data/.ready
   |
   v
 SIGTERM / SIGINT / SIGQUIT
-  |- try RCON stop
+  |- try serialized RCON stop
   |- wait for clean exit
   |- TERM fallback
   `- KILL fallback
 ```
 
-The install/runtime boundary is currently an internal entrypoint structure. Unlike Minecartainer, it is not yet exposed as a complete install-only workflow.
+Install-only stops after `post-install` hooks and exits successfully without creating runtime readiness state.
 
 ## Quick start with Docker Compose
-
-Create `compose.yml`:
 
 ```yaml
 services:
@@ -227,20 +272,18 @@ volumes:
   bedrock_data:
 ```
 
-Start it:
-
 ```bash
 docker compose up -d
 docker compose logs -f bedrock
 ```
 
-The default RCON policy is enabled, so `RCON_PASSWORD` is required unless you explicitly set:
+RCON defaults to enabled for normal runtime, so `RCON_PASSWORD` is required unless you explicitly set:
 
 ```yaml
 ENABLE_RCON: "false"
 ```
 
-Do not publish the RCON port unless you have a specific reason to expose it.
+Do not publish the RCON port unless you intentionally need remote RCON access.
 
 ## Minimal `docker run`
 
@@ -254,17 +297,42 @@ docker run -d \
   ghcr.io/alexandergg-0520/minecraft-bedrock-server:latest
 ```
 
+## Command modes
+
+The entrypoint supports lifecycle/control commands:
+
+| Command | Purpose |
+| --- | --- |
+| `run` | Normal install-then-runtime lifecycle |
+| `install-only` | Run installation lifecycle and exit without starting BDS |
+| `rcon <command...>` | Execute one RCON command |
+| `rcon-say <message...>` | Execute `say` through RCON |
+| `rcon-stop` | Issue the serialized stop path; exits successfully for orchestrator compatibility |
+| `healthcheck` | Validate readiness file + BDS process |
+
+Example:
+
+```bash
+docker run --rm \
+  -e EULA=true \
+  -v minecraft-bedrock-data:/data \
+  ghcr.io/alexandergg-0520/minecraft-bedrock-server:latest \
+  install-only
+```
+
+Install-only does not require runtime-only RCON credentials.
+
 ## Kubernetes usage
 
-The main Kubernetes assumptions are:
+The important assumptions are:
 
-- one active BDS process should own a world volume;
+- one active BDS runtime should own a world volume;
 - `/data` should be persistent;
-- the Pod should run as non-root under normal operation;
-- updates should not briefly run two Pods against the same world;
-- termination must allow enough time for RCON shutdown and world saving.
+- normal runtime should run as non-root;
+- updates should not briefly run two BDS processes against the same world;
+- termination must leave enough time for graceful shutdown.
 
-A minimal Deployment pattern looks like this:
+A minimal Deployment pattern:
 
 ```yaml
 apiVersion: apps/v1
@@ -309,22 +377,16 @@ spec:
               mountPath: /data
           startupProbe:
             exec:
-              command:
-                - /usr/local/bin/docker-entrypoint.sh
-                - healthcheck
+              command: ["/usr/local/bin/docker-entrypoint.sh", "healthcheck"]
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
             exec:
-              command:
-                - /usr/local/bin/docker-entrypoint.sh
-                - healthcheck
+              command: ["/usr/local/bin/docker-entrypoint.sh", "healthcheck"]
             periodSeconds: 10
           livenessProbe:
             exec:
-              command:
-                - /usr/local/bin/docker-entrypoint.sh
-                - healthcheck
+              command: ["/usr/local/bin/docker-entrypoint.sh", "healthcheck"]
             periodSeconds: 30
             failureThreshold: 3
       volumes:
@@ -333,16 +395,52 @@ spec:
             claimName: minecraft-bedrock
 ```
 
-The PVC, Secret, and network Service are deployment-specific and are intentionally not invented by the image.
+For GitOps/production, prefer an explicit BDS version when you need deterministic server upgrades and pin the container image by digest.
 
-For stricter GitOps deployments, prefer an explicit BDS version and pin the container image by digest instead of letting both layers float independently.
+### Install-only Job
+
+Install-only can pre-warm or validate a PVC without starting the BDS runtime:
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minecraft-bedrock-install
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: install
+          image: ghcr.io/alexandergg-0520/minecraft-bedrock-server:latest
+          args: ["install-only"]
+          env:
+            - name: EULA
+              value: "true"
+            - name: VERSION
+              value: "1.21.130.4"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minecraft-bedrock
+```
+
+Do **not** run an install Job concurrently with an active server Pod writing the same PVC. Stop/scale down the runtime first and respect your storage access mode.
 
 ## BDS version selection
 
-Resolution priority is:
+Resolution priority:
 
 1. `BDS_DOWNLOAD_URL` when explicitly set;
-2. `BDS_CHANNEL=stable` + `BDS_STABLE_VERSION`;
+2. `BDS_CHANNEL=stable` with `BDS_STABLE_VERSION`;
 3. explicit `VERSION`;
 4. `VERSION=latest`, resolved from the official Bedrock server download page.
 
@@ -352,7 +450,7 @@ Resolution priority is:
 VERSION: "latest"
 ```
 
-This is the default. On startup the entrypoint resolves the current Linux BDS download URL. If `/data/.bds-version` already matches the resolved version, installation is skipped.
+`latest` is a managed floating mode. A newer resolved BDS version may replace the previous managed `latest` installation while preserving worlds and key configuration.
 
 ### Explicit version
 
@@ -360,7 +458,7 @@ This is the default. On startup the entrypoint resolves the current Linux BDS do
 VERSION: "1.21.130.4"
 ```
 
-Use an explicit version when you do not want an ordinary restart to move to a newly released BDS version.
+Pinned version changes are treated as incompatible managed state and require `FORCE_REINSTALL=true`.
 
 ### Stable channel
 
@@ -369,43 +467,19 @@ BDS_CHANNEL: "stable"
 BDS_STABLE_VERSION: "1.21.130.4"
 ```
 
-The published `stable` image target also carries the repository-configured stable BDS version at image build time.
+`stable` is also a managed floating mode within the same installation mode.
 
-### Direct download override
+### Direct URL override
 
 ```yaml
 BDS_DOWNLOAD_URL: "https://example.invalid/bedrock-server.zip"
 ```
 
-This has the highest priority and is intended for deliberate overrides. The operator is responsible for the trust and compatibility of the supplied artifact.
-
-## Persistent data model
-
-`/data` is the main persistent boundary.
-
-Important paths include:
-
-```text
-/data/
-├── bedrock_server
-├── .bds-version
-├── .ready
-├── server.properties
-├── allowlist.json
-├── permissions.json
-├── worlds/
-├── behavior_packs/
-├── resource_packs/
-└── logs/
-```
-
-The current design deliberately keeps the BDS installation and mutable world/config state in the same persistent tree. This is simple and practical, but it is also one of the areas where the design is less strongly separated than Minecartainer.
-
-Back up `/data` independently. S3 asset delivery in this image is not a substitute for a world backup policy.
+A direct URL has highest priority. Its URL is fingerprinted for state comparison; the raw URL is not stored in the managed install marker.
 
 ## `server.properties` configuration
 
-Supported environment-variable mappings are applied only when the variable is non-empty.
+Non-empty environment values are mapped to existing/new properties.
 
 | Environment variable | `server.properties` key |
 | --- | --- |
@@ -432,50 +506,90 @@ Supported environment-variable mappings are applied only when the variable is no
 | `ENABLE_LAN_VISIBILITY` | `enable-lan-visibility` |
 | `SERVER_PUBLIC_IP` | `server-public-ip` |
 
-For additional properties, use comma-separated `key=value` entries:
+Additional properties can be supplied as comma-separated `key=value` entries:
 
 ```yaml
 BDS_PROPERTIES: "compression-threshold=1,client-side-chunk-generation-enabled=true"
 ```
 
-Existing `server.properties` is preserved across BDS replacement and then updated by the configured environment overrides.
+Existing `server.properties` is preserved across BDS replacement and then updated by configured overrides.
+
+## Lifecycle hooks
+
+Hooks are disabled by default.
+
+```yaml
+HOOKS_ENABLED: "true"
+HOOKS_DIR: "/hooks"
+HOOKS_STRICT: "true"
+HOOKS_TIMEOUT_SEC: "30"
+```
+
+Executable files are run from:
+
+```text
+/hooks/pre-install.d/
+/hooks/post-install.d/
+/hooks/pre-runtime.d/
+```
+
+Each hook receives:
+
+```text
+HOOK_PHASE=<phase-name>
+```
+
+`HOOKS_STRICT=true` makes a hook failure fatal. `HOOKS_TIMEOUT_SEC=0` disables the timeout.
+
+Hooks run after the optional root ownership-repair path has dropped privileges, so lifecycle extensions do not silently regain root.
 
 ## RCON and graceful shutdown
 
-RCON defaults to enabled.
+RCON defaults to enabled for normal runtime.
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |
-| `ENABLE_RCON` | `true` | Enable BDS RCON and shutdown integration |
-| `RCON_HOST` | `127.0.0.1` | Address used by the local `mcrcon` client |
+| `ENABLE_RCON` | `true` | Enable RCON lifecycle integration |
+| `RCON_HOST` | `127.0.0.1` | Local client target |
 | `RCON_PORT` | `19134` | RCON port |
-| `RCON_PASSWORD` | required when enabled | RCON credential |
-| `RCON_RETRIES` | `5` | Command retry count |
-| `RCON_RETRY_DELAY` | `1` | Delay between retries in seconds |
-| `RCON_TIMEOUT` | `5` | Per-attempt timeout in seconds |
-| `SHUTDOWN_WAIT_TIMEOUT` | `60` | Wait after RCON stop |
-| `SHUTDOWN_TERM_WAIT` | `10` | Wait after TERM fallback |
+| `RCON_PASSWORD` | required at runtime when enabled | RCON credential |
+| `RCON_CMDS_STARTUP` | empty | Newline-separated commands run before readiness |
+| `RCON_RETRIES` | `5` | Positive command attempt budget |
+| `RCON_RETRY_DELAY` | `1` | Delay between attempts |
+| `RCON_TIMEOUT` | `5` | Positive per-attempt timeout |
+| `SHUTDOWN_WAIT_TIMEOUT` | `60` | Positive clean-exit wait budget after RCON stop |
+| `SHUTDOWN_TERM_WAIT` | `10` | TERM fallback wait budget |
 
-The shutdown command is protected by a lock so duplicate stop paths, such as an orchestrator hook plus a signal trap, do not intentionally issue the RCON stop sequence twice.
+Startup command example:
+
+```yaml
+RCON_CMDS_STARTUP: |-
+  say Server startup checks complete
+  gamerule showcoordinates true
+```
+
+If a configured startup command fails, the server is stopped and readiness is never published.
+
+The RCON stop path is protected by an ephemeral lock outside `/data` so duplicate preStop/signal paths do not intentionally execute stop twice.
 
 ## Health check
 
-The image defines a Docker `HEALTHCHECK` that runs:
+The image defines:
 
 ```bash
 /usr/local/bin/docker-entrypoint.sh healthcheck
 ```
 
-It requires both:
+Health requires:
 
-- `/data/.ready` to exist; and
-- the `bedrock_server` process to be running.
+- `/data/.ready` exists; and
+- the `bedrock_server` process is running.
 
-The same command can be reused for Kubernetes startup, readiness, and liveness probes, with startup timing configured by the deployment.
+The readiness file is created only after the process survives `READY_DELAY` and startup RCON commands succeed. It is removed when the server exits or shutdown begins.
 
-## S3-compatible asset delivery
+## S3-compatible delivery
 
-Set the common credentials only when an S3-backed feature is used:
+Common settings:
 
 ```yaml
 S3_ENDPOINT: "https://minio.example.com"
@@ -489,15 +603,11 @@ S3_SECRET_KEY: "..."
 BEHAVIORPACKS_ENABLED: "true"
 BEHAVIORPACKS_S3_BUCKET: "minecraft"
 BEHAVIORPACKS_S3_PREFIX: "behavior_packs/latest"
+BEHAVIORPACKS_SYNC_ONCE: "true"
+BEHAVIORPACKS_REMOVE_EXTRA: "false"
 ```
 
-Relevant controls:
-
-- `BEHAVIORPACKS_SYNC_ONCE`
-- `BEHAVIORPACKS_REMOVE_EXTRA`
-- `INPUT_BEHAVIORPACKS_DIR`
-
-`BEHAVIORPACKS_REMOVE_EXTRA=true` makes the mirrored source authoritative for files in the input directory, so verify the bucket and prefix before using destructive mirror semantics.
+Local/immutable input can also be supplied with `INPUT_BEHAVIORPACKS_DIR`.
 
 ### Resource packs
 
@@ -505,27 +615,24 @@ Relevant controls:
 RESOURCEPACKS_ENABLED: "true"
 RESOURCEPACKS_S3_BUCKET: "minecraft"
 RESOURCEPACKS_S3_PREFIX: "resource_packs/latest"
+RESOURCEPACKS_SYNC_ONCE: "true"
+RESOURCEPACKS_REMOVE_EXTRA: "false"
 ```
 
-Relevant controls:
+Local/immutable input can also be supplied with `INPUT_RESOURCEPACKS_DIR`.
 
-- `RESOURCEPACKS_SYNC_ONCE`
-- `RESOURCEPACKS_REMOVE_EXTRA`
-- `INPUT_RESOURCEPACKS_DIR`
-
-### Initial world ZIP
+### World archive
 
 ```yaml
 WORLD_S3_BUCKET: "minecraft"
 WORLD_S3_KEY: "worlds/worlds.zip"
 WORLD_INSTALL_ONCE: "true"
+WORLD_REPLACE: "false"
 ```
 
-With `WORLD_INSTALL_ONCE=true`, world import is skipped once `/data/worlds` already contains a world. The archive may either contain a top-level `worlds/` directory or contain world directories at its root.
+The archive may contain a top-level `worlds/` directory or world directories directly at archive root.
 
-This is intended for **bootstrap/import**, not continuous synchronization.
-
-## Runtime identity and volume permissions
+## Runtime identity and permissions
 
 Defaults:
 
@@ -534,57 +641,67 @@ RUN_UID=1000
 RUN_GID=1000
 ```
 
-The final image itself uses UID/GID `1000` by default.
+The final image runs as UID/GID `1000` by default.
 
-If you mount a host directory, make sure UID/GID `1000` can write it, or deliberately choose another ownership strategy.
+When deliberately started as root, `FIX_OWNERSHIP=true` allows `/data` ownership repair and the entrypoint then drops privileges with `gosu` **before** the install/runtime lifecycle executes.
 
-`RUN_UID` / `RUN_GID` are mainly useful when the container is deliberately started as root so the entrypoint can repair `/data` ownership and then use `gosu` to drop privileges. Merely setting those variables does not magically change filesystem ownership when the container is already running as a non-root user.
+```yaml
+FIX_OWNERSHIP: "false"
+```
 
-`FIX_OWNERSHIP=false` disables the recursive ownership repair path when starting as root.
+disables recursive ownership repair.
 
 ## Image tags
 
-The publish workflow currently builds two targets for both `linux/amd64` and `linux/arm64`:
+The publish workflow builds both `linux/amd64` and `linux/arm64` targets:
 
 | Tag | Meaning |
 | --- | --- |
-| `latest` | `bedrock-latest` target; resolves latest BDS unless runtime configuration overrides it |
-| `stable` | `bedrock-stable` target; carries the repository-configured `BDS_STABLE_VERSION` |
+| `latest` | `bedrock-latest`; managed latest BDS resolution unless overridden |
+| `stable` | `bedrock-stable`; carries the configured stable BDS version |
 
-Both tags are published to GHCR and Docker Hub.
+Both are published to GHCR and Docker Hub.
 
-For production/GitOps use, a floating image tag is convenient for testing but a digest pin gives a clearer container-runtime boundary.
+For production/GitOps, prefer digest-pinned container images.
 
-## CI and supply-chain metadata
+## CI and regression coverage
 
-The repository currently checks:
+The required `Status checks` workflow validates:
 
-- Bash syntax;
-- ShellCheck warnings;
-- Docker builds for both `bedrock-latest` and `bedrock-stable` targets.
+- Bash syntax across entrypoint, modules, and tests;
+- composed ShellCheck;
+- module loading;
+- lifecycle ordering;
+- `server.properties` behavior;
+- install-state mismatch/adoption rules;
+- safe filesystem operations;
+- lifecycle hooks;
+- pack ownership behavior;
+- RCON startup behavior;
+- world archive/path safety;
+- world source metadata;
+- Docker builds for both targets;
+- an actual container lifecycle integration using a local fake BDS ELF fixture.
 
-Published multi-architecture images also request SBOM and provenance metadata from Docker Buildx.
+The container integration exercises install-only, managed installation, readiness, healthcheck, graceful signal termination, and readiness cleanup without depending on the live BDS download service.
 
-This is useful baseline coverage, but it should not be confused with Minecartainer's broader runtime behavior regression suite. Expanding Bedrock runtime smoke coverage is an obvious future hardening step.
+## Remaining design work
 
-## Current limitations / future design work
+The large monolithic-lifecycle problem has been removed. The next work should be Bedrock-specific capability growth on top of the state boundaries above.
 
-The largest remaining architectural work is not adding more environment variables. It is making lifecycle and persistent-state rules more explicit.
+Likely areas:
 
-Likely areas to refine include:
+- explicit GitOps ownership for `allowlist.json` and `permissions.json`;
+- Bedrock-native behavior/resource pack binding to individual worlds;
+- richer S3 source/cache conflict diagnostics;
+- broader persistent-volume upgrade/reinstall matrices;
+- more Kubernetes lifecycle examples;
+- additional RCON/shutdown integration scenarios.
 
-- separating installation from runtime more strongly;
-- introducing explicit managed-install state instead of relying mainly on `.bds-version` plus filesystem presence;
-- making destructive asset synchronization ownership-aware;
-- adding install-only/pre-warm workflows for Kubernetes;
-- expanding runtime smoke tests around upgrades, shutdown, S3 imports, and persistent-volume mismatch cases;
-- reducing the amount of policy concentrated in one shell entrypoint;
-- documenting stronger invariants for what the image may and may not mutate inside `/data`.
-
-The goal is not to copy Minecartainer mechanically. Bedrock has a different server distribution and configuration model. The useful target is to bring the same level of **predictability, explicit state ownership, and failure boundaries** to a design that fits BDS.
+The rule for future features is simple: **define ownership and destructive transitions before adding automation**.
 
 ## License
 
 This repository is licensed under the [MIT License](LICENSE).
 
-Minecraft and Minecraft Bedrock Dedicated Server are products of Microsoft/Mojang. This project is an independent containerization project and is not affiliated with or endorsed by Microsoft or Mojang.
+Minecraft and Minecraft Bedrock Dedicated Server are products of Microsoft/Mojang. This project is independent and is not affiliated with or endorsed by Microsoft or Mojang.
