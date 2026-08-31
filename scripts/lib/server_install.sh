@@ -156,23 +156,30 @@ current_installed_version() {
   fi
 }
 
+validate_bds_install_marker_current() {
+  local marker="$1"
+
+  jq -e '
+    type == "object"
+    and .schema_version == 2
+    and .state_type == "bds-install"
+    and .artifact == "bedrock_server"
+    and (.mode | type == "string" and (. == "latest" or . == "stable" or . == "version" or . == "custom-url"))
+    and (.requested_version | type == "string" and length > 0)
+    and (.resolved_version | type == "string" and length > 0)
+    and (.source_fingerprint | type == "string" and length > 0)
+  ' "${marker}" >/dev/null 2>&1
+}
+
 validate_bds_install_marker() {
   local marker="$1"
-  local field
 
-  jq -e 'type == "object"' "${marker}" >/dev/null 2>&1 \
-    || die "Invalid/corrupt BDS install marker: ${marker}"
-
-  for field in schema_version artifact mode requested_version resolved_version source_fingerprint; do
-    jq -e --arg field "${field}" \
-      'has($field) and .[$field] != null' "${marker}" >/dev/null 2>&1 \
-      || die "Incomplete BDS install marker: ${marker} missing ${field}"
-  done
-
-  jq -e '.schema_version == 1' "${marker}" >/dev/null 2>&1 \
-    || die "Unsupported BDS install marker schema: ${marker}"
-  jq -e '.artifact == "bedrock_server"' "${marker}" >/dev/null 2>&1 \
-    || die "Invalid BDS install marker artifact: ${marker}"
+  managed_state_ensure_current \
+    "${marker}" \
+    bds-install \
+    validate_bds_install_marker_current \
+    managed_state_migrate_envelope \
+    'BDS install marker'
 }
 
 read_bds_install_marker_field() {
@@ -190,13 +197,14 @@ write_bds_install_marker() {
     || die "Failed to create BDS install marker temporary file"
 
   if ! jq -n \
-    --argjson schema_version 1 \
+    --argjson schema_version "${MANAGED_STATE_SCHEMA_VERSION}" \
+    --arg state_type "bds-install" \
     --arg artifact "bedrock_server" \
     --arg mode "${BDS_INSTALL_MODE}" \
     --arg requested_version "${BDS_REQUESTED_VERSION}" \
     --arg resolved_version "${BDS_RESOLVED_VERSION}" \
     --arg source_fingerprint "${BDS_SOURCE_FINGERPRINT}" \
-    '{schema_version:$schema_version,artifact:$artifact,mode:$mode,requested_version:$requested_version,resolved_version:$resolved_version,source_fingerprint:$source_fingerprint}' \
+    '{schema_version:$schema_version,state_type:$state_type,artifact:$artifact,mode:$mode,requested_version:$requested_version,resolved_version:$resolved_version,source_fingerprint:$source_fingerprint}' \
     > "${tmp}"; then
     safe_rm_f "${tmp}" || true
     die "Failed to build BDS install marker"
