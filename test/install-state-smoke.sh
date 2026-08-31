@@ -23,6 +23,11 @@ BDS_RESOLVED_URL="https://example.invalid/bedrock-server-1.21.130.4.zip"
 BDS_SOURCE_FINGERPRINT="fingerprint-a"
 write_bds_install_marker
 
+[[ "$(stat -c '%a' "$(bds_install_marker)")" == "644" ]] || {
+  printf 'managed install marker permissions are not 0644\n' >&2
+  exit 1
+}
+
 if prepare_bds_install_state; then
   printf 'matching managed install unexpectedly requested reinstall\n' >&2
   exit 1
