@@ -11,6 +11,13 @@ world_pack_state_marker() {
   printf '%s/%s.json\n' "$(world_pack_state_dir "${level_name}")" "${kind}"
 }
 
+cleanup_world_pack_temps() {
+  local path
+  for path in "$@"; do
+    [[ -z "${path}" ]] || safe_rm_f "${path}" || true
+  done
+}
+
 validate_world_pack_level_name() {
   local level_name="$1"
   [[ -n "${level_name}" ]] || return 1
@@ -121,7 +128,7 @@ collect_managed_pack_bindings() {
   local kind="$1"
   local content_name="$2"
   local pack_dir="$3"
-  local content_marker entry manifest tmp
+  local content_marker entry manifest tmp next binding
 
   tmp="$(mktemp "/tmp/world-${kind}.desired.XXXXXX.json")" \
     || die "Failed to create desired ${kind} binding temporary file"
@@ -141,11 +148,11 @@ collect_managed_pack_bindings() {
       || { safe_rm_f "${tmp}" || true; die "Managed ${content_name} entry cannot be bound because manifest.json is missing: ${entry}"; }
     validate_pack_manifest "${manifest}" "${kind}"
 
-    local next
+    binding="$(jq -c '{pack_id:.header.uuid,version:.header.version}' "${manifest}")" \
+      || { safe_rm_f "${tmp}" || true; die "Failed to read ${kind} pack manifest: ${manifest}"; }
     next="$(mktemp "/tmp/world-${kind}.desired-next.XXXXXX.json")" \
       || { safe_rm_f "${tmp}" || true; die "Failed to extend desired ${kind} bindings"; }
-    jq --argjson binding "$(jq -c '{pack_id:.header.uuid,version:.header.version}' "${manifest}")" \
-      '. + [$binding]' "${tmp}" > "${next}" \
+    jq --argjson binding "${binding}" '. + [$binding]' "${tmp}" > "${next}" \
       || { safe_rm_f "${tmp}" || true; safe_rm_f "${next}" || true; die "Failed to collect ${kind} pack binding"; }
     safe_mv_f "${next}" "${tmp}" \
       || { safe_rm_f "${tmp}" || true; safe_rm_f "${next}" || true; die "Failed to update desired ${kind} bindings"; }
@@ -168,6 +175,7 @@ validate_existing_world_binding() {
       and (.version | type == "array" and length == 3)
       and all(.version[]; type == "number" and . >= 0 and floor == .)
     )
+    and ((map(.pack_id) | length) == (map(.pack_id) | unique | length))
   ' "${file}" >/dev/null 2>&1 \
     || die "Current world_${kind}_packs.json is invalid/corrupt: ${file}"
 }
@@ -234,20 +242,23 @@ bind_managed_pack_kind() {
   prepare_world_pack_previous_ids "${level_name}" "${kind}"
   previous="${WORLD_PACK_PREVIOUS_IDS_TMP}"
   current_ids="$(mktemp "/tmp/world-${kind}.current-ids.XXXXXX.json")" \
-    || { cleanup_player_access_temps "${desired}" "${existing}" "${previous}"; die "Failed to create current ${kind} pack-id file"; }
-  jq '[.[].pack_id] | unique' "${desired}" > "${current_ids}"
+    || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}"; die "Failed to create current ${kind} pack-id file"; }
+  jq '[.[].pack_id] | unique' "${desired}" > "${current_ids}" \
+    || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}"; die "Failed to collect current ${kind} pack IDs"; }
 
   next_ids="$(mktemp "/tmp/world-${kind}.next-ids.XXXXXX.json")" \
-    || { cleanup_player_access_temps "${desired}" "${existing}" "${previous}" "${current_ids}"; die "Failed to create next ${kind} pack-id file"; }
+    || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}"; die "Failed to create next ${kind} pack-id file"; }
   if is_true "${WORLD_PACKS_REMOVE_EXTRA}"; then
-    cp -- "${current_ids}" "${next_ids}"
+    cp -- "${current_ids}" "${next_ids}" \
+      || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}"; die "Failed to prepare next ${kind} pack IDs"; }
   else
     jq -n --slurpfile previous "${previous}" --slurpfile current "${current_ids}" \
-      '($previous[0] + $current[0]) | unique' > "${next_ids}"
+      '($previous[0] + $current[0]) | unique' > "${next_ids}" \
+      || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}"; die "Failed to merge next ${kind} pack IDs"; }
   fi
 
   output="$(mktemp "${DATA_DIR}/worlds/${level_name}/.world_${kind}_packs.json.tmp.XXXXXX")" \
-    || { cleanup_player_access_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}"; die "Failed to create ${kind} binding output file"; }
+    || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}"; die "Failed to create ${kind} binding output file"; }
   jq -n \
     --slurpfile existing "${existing}" \
     --slurpfile desired "${desired}" \
@@ -270,12 +281,12 @@ bind_managed_pack_kind() {
             | $entry
           ]
     ' > "${output}" \
-    || { cleanup_player_access_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}" "${output}"; die "Failed to merge ${kind} world bindings"; }
+    || { cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}" "${output}"; die "Failed to merge ${kind} world bindings"; }
 
   prepare_world_pack_marker "${level_name}" "${kind}" "${next_ids}"
   marker="${WORLD_PACK_MARKER_PATH}"
   activate_world_pack_binding_state "${kind}" "${target}" "${output}" "${WORLD_PACK_MARKER_TMP}" "${marker}"
-  cleanup_player_access_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}"
+  cleanup_world_pack_temps "${desired}" "${existing}" "${previous}" "${current_ids}" "${next_ids}"
   log INFO "Managed ${kind} packs bound to world '${level_name}' (remove_extra=${WORLD_PACKS_REMOVE_EXTRA})"
 }
 
