@@ -8,12 +8,15 @@ source "${ROOT_DIR}/entrypoint.sh"
 required_functions=(
   initialize_config
   preflight
+  run_phase_hooks
   install_bds
   install_world_zip_from_s3
+  activate_managed_content
   install_behaviorpacks
   install_resourcepacks
   apply_server_properties_from_env
   rcon_exec
+  run_rcon_startup_commands
   graceful_shutdown
   install
   runtime

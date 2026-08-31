@@ -118,7 +118,9 @@ RUN set -eux; \
       --home-dir /data \
       --create-home \
       --shell /usr/sbin/nologin \
-      minecraft
+      minecraft; \
+    mkdir -p /behavior_packs /resource_packs; \
+    chown minecraft:minecraft /behavior_packs /resource_packs
 
 COPY --from=mc-builder /usr/local/bin/mc /usr/local/bin/mc
 COPY --from=gosu-builder /usr/local/bin/gosu /usr/local/bin/gosu

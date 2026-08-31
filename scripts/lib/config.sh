@@ -20,14 +20,22 @@ initialize_config() {
   : "${BDS_DOWNLOAD_URL:=}"
   : "${BDS_CHANNEL:=latest}"
   : "${BDS_STABLE_VERSION:=}"
+  : "${FORCE_REINSTALL:=false}"
 
   : "${READY_DELAY:=5}"
   : "${FIX_OWNERSHIP:=true}"
+  : "${INSTALL_ONLY:=false}"
+
+  : "${HOOKS_ENABLED:=false}"
+  : "${HOOKS_DIR:=/hooks}"
+  : "${HOOKS_STRICT:=true}"
+  : "${HOOKS_TIMEOUT_SEC:=0}"
 
   : "${ENABLE_RCON:=true}"
   : "${RCON_HOST:=127.0.0.1}"
   : "${RCON_PORT:=19134}"
   : "${RCON_PASSWORD:=}"
+  : "${RCON_CMDS_STARTUP:=}"
 
   : "${S3_ENDPOINT:=}"
   : "${S3_ACCESS_KEY:=}"
@@ -37,19 +45,20 @@ initialize_config() {
   : "${BEHAVIORPACKS_S3_BUCKET:=}"
   : "${BEHAVIORPACKS_S3_PREFIX:=behavior_packs/latest}"
   : "${BEHAVIORPACKS_SYNC_ONCE:=true}"
-  : "${BEHAVIORPACKS_REMOVE_EXTRA:=true}"
+  : "${BEHAVIORPACKS_REMOVE_EXTRA:=false}"
   : "${INPUT_BEHAVIORPACKS_DIR:=/behavior_packs}"
 
   : "${RESOURCEPACKS_ENABLED:=true}"
   : "${RESOURCEPACKS_S3_BUCKET:=}"
   : "${RESOURCEPACKS_S3_PREFIX:=resource_packs/latest}"
   : "${RESOURCEPACKS_SYNC_ONCE:=true}"
-  : "${RESOURCEPACKS_REMOVE_EXTRA:=true}"
+  : "${RESOURCEPACKS_REMOVE_EXTRA:=false}"
   : "${INPUT_RESOURCEPACKS_DIR:=/resource_packs}"
 
   : "${WORLD_S3_BUCKET:=}"
   : "${WORLD_S3_KEY:=}"
   : "${WORLD_INSTALL_ONCE:=true}"
+  : "${WORLD_REPLACE:=false}"
 
   : "${BDS_PROPERTIES:=}"
 

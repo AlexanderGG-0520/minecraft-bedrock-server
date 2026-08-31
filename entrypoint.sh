@@ -21,8 +21,12 @@ source "${LIB_DIR}/common.sh"
 source "${LIB_DIR}/config.sh"
 # shellcheck source=scripts/lib/filesystem.sh
 source "${LIB_DIR}/filesystem.sh"
+# shellcheck source=scripts/lib/content_state.sh
+source "${LIB_DIR}/content_state.sh"
 # shellcheck source=scripts/lib/preflight.sh
 source "${LIB_DIR}/preflight.sh"
+# shellcheck source=scripts/lib/lifecycle.sh
+source "${LIB_DIR}/lifecycle.sh"
 # shellcheck source=scripts/lib/s3_client.sh
 source "${LIB_DIR}/s3_client.sh"
 # shellcheck source=scripts/lib/content_assets.sh
@@ -62,6 +66,7 @@ main() {
   log INFO "Minecraft Bedrock Runtime Booting..."
   preflight
   fix_ownership_if_needed
+  drop_privileges_if_needed
   run_runtime_phase
 }
 
