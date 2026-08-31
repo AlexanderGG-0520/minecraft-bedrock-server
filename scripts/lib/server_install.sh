@@ -48,6 +48,32 @@ extract_bds_version_from_url() {
   return 1
 }
 
+official_bds_url_for_version() {
+  local version="$1"
+  printf 'https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-%s.zip\n' "${version}"
+}
+
+extract_official_bds_url_from_page() {
+  local page="$1"
+  local url
+
+  url="$(printf '%s' "${page}" \
+    | grep -Eo 'https://(www\.)?minecraft\.net/bedrockdedicatedserver/bin-linux/bedrock-server-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.zip' \
+    | head -n1 || true)"
+  if [[ -n "${url}" ]]; then
+    printf '%s\n' "${url}"
+    return 0
+  fi
+
+  # Legacy official pages used the AzureEdge host. Keep parsing it so a
+  # temporary upstream rollback does not break latest resolution.
+  url="$(printf '%s' "${page}" \
+    | grep -Eo 'https://minecraft\.azureedge\.net/bin-linux/bedrock-server-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.zip' \
+    | head -n1 || true)"
+  [[ -n "${url}" ]] || return 1
+  printf '%s\n' "${url}"
+}
+
 resolve_bds_download_url() {
   if [[ -n "${BDS_DOWNLOAD_URL}" ]]; then
     printf '%s\n' "${BDS_DOWNLOAD_URL}"
@@ -56,21 +82,19 @@ resolve_bds_download_url() {
 
   if [[ "${BDS_CHANNEL}" == "stable" ]]; then
     [[ -n "${BDS_STABLE_VERSION}" ]] || die "BDS_CHANNEL=stable requires BDS_STABLE_VERSION"
-    printf 'https://minecraft.azureedge.net/bin-linux/bedrock-server-%s.zip\n' "${BDS_STABLE_VERSION}"
+    official_bds_url_for_version "${BDS_STABLE_VERSION}"
     return 0
   fi
 
   if [[ "${VERSION}" != "latest" ]]; then
-    printf 'https://minecraft.azureedge.net/bin-linux/bedrock-server-%s.zip\n' "${VERSION}"
+    official_bds_url_for_version "${VERSION}"
     return 0
   fi
 
   local page url
   page="$(curl -fsSL "https://www.minecraft.net/en-us/download/server/bedrock")" \
     || die "Failed to fetch official Bedrock server download page"
-  url="$(printf '%s' "${page}" \
-    | grep -Eo 'https://minecraft\.azureedge\.net/bin-linux/bedrock-server-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\.zip' \
-    | head -n1 || true)"
+  url="$(extract_official_bds_url_from_page "${page}" || true)"
   [[ -n "${url}" ]] || die "Failed to find Linux bedrock-server zip URL on the download page"
   printf '%s\n' "${url}"
 }
@@ -154,10 +178,32 @@ write_bds_install_marker() {
 
 bds_marker_matches_request() {
   local marker="$1"
+
   [[ "$(read_bds_install_marker_field "${marker}" mode)" == "${BDS_INSTALL_MODE}" ]] \
     && [[ "$(read_bds_install_marker_field "${marker}" requested_version)" == "${BDS_REQUESTED_VERSION}" ]] \
     && [[ "$(read_bds_install_marker_field "${marker}" resolved_version)" == "${BDS_RESOLVED_VERSION}" ]] \
-    && [[ "$(read_bds_install_marker_field "${marker}" source_fingerprint)" == "${BDS_SOURCE_FINGERPRINT}" ]]
+    || return 1
+
+  # Official modes are identified by the resolved artifact version. Mojang may
+  # move an unchanged artifact between official hosts/CDNs without making the
+  # persistent installation incompatible. A custom URL remains source-strict.
+  if [[ "${BDS_INSTALL_MODE}" == "custom-url" ]]; then
+    [[ "$(read_bds_install_marker_field "${marker}" source_fingerprint)" == "${BDS_SOURCE_FINGERPRINT}" ]]
+  else
+    return 0
+  fi
+}
+
+refresh_official_bds_source_metadata_if_needed() {
+  local marker="$1"
+  local marker_fingerprint
+
+  [[ "${BDS_INSTALL_MODE}" != "custom-url" ]] || return 0
+  marker_fingerprint="$(read_bds_install_marker_field "${marker}" source_fingerprint)"
+  [[ "${marker_fingerprint}" != "${BDS_SOURCE_FINGERPRINT}" ]] || return 0
+
+  log INFO "Official BDS source URL changed without an artifact-version change; refreshing managed source metadata"
+  write_bds_install_marker
 }
 
 bds_request_allows_managed_upgrade() {
@@ -180,6 +226,7 @@ prepare_bds_install_state() {
     validate_bds_install_marker "${marker}"
 
     if [[ -x "${DATA_DIR}/bedrock_server" ]] && bds_marker_matches_request "${marker}"; then
+      refresh_official_bds_source_metadata_if_needed "${marker}"
       log INFO "BDS managed install already matches requested state (version=${BDS_RESOLVED_VERSION})"
       return 1
     fi
