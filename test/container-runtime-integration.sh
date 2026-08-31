@@ -15,11 +15,15 @@ mkdir -p \
   "${tmp_dir}/fixture" \
   "${tmp_dir}/install-data" \
   "${tmp_dir}/root-install-data" \
-  "${tmp_dir}/runtime-data"
+  "${tmp_dir}/runtime-data/worlds/Test World" \
+  "${tmp_dir}/behavior-input/managed_bp" \
+  "${tmp_dir}/resource-input/managed_rp"
 chmod 0777 \
   "${tmp_dir}/install-data" \
   "${tmp_dir}/root-install-data" \
-  "${tmp_dir}/runtime-data"
+  "${tmp_dir}/runtime-data" \
+  "${tmp_dir}/runtime-data/worlds" \
+  "${tmp_dir}/runtime-data/worlds/Test World"
 
 cat > "${tmp_dir}/fake-bedrock.c" <<'EOF'
 #include <signal.h>
@@ -47,6 +51,46 @@ cc -O2 -o "${tmp_dir}/fixture/bedrock_server" "${tmp_dir}/fake-bedrock.c"
 printf 'server-name=Fixture Server\nserver-port=19132\n' > "${tmp_dir}/fixture/server.properties"
 printf '[]\n' > "${tmp_dir}/fixture/allowlist.json"
 printf '[]\n' > "${tmp_dir}/fixture/permissions.json"
+
+cat > "${tmp_dir}/behavior-input/managed_bp/manifest.json" <<'JSON'
+{
+  "format_version": 2,
+  "header": {
+    "name": "Integration BP",
+    "description": "integration",
+    "uuid": "33333333-3333-4333-8333-333333333333",
+    "version": [1, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "type": "data",
+      "uuid": "33333333-3333-4333-8333-333333333334",
+      "version": [1, 0, 0]
+    }
+  ]
+}
+JSON
+
+cat > "${tmp_dir}/resource-input/managed_rp/manifest.json" <<'JSON'
+{
+  "format_version": 2,
+  "header": {
+    "name": "Integration RP",
+    "description": "integration",
+    "uuid": "44444444-4444-4444-8444-444444444444",
+    "version": [2, 0, 0],
+    "min_engine_version": [1, 21, 0]
+  },
+  "modules": [
+    {
+      "type": "resources",
+      "uuid": "44444444-4444-4444-8444-444444444445",
+      "version": [2, 0, 0]
+    }
+  ]
+}
+JSON
 
 python3 - "${tmp_dir}" <<'PY'
 import pathlib
@@ -133,12 +177,18 @@ root_install_marker="${tmp_dir}/root-install-data/.bds-install.json"
   exit 1
 }
 
-# Normal runtime lifecycle: install, become ready, then terminate cleanly.
+# Normal runtime lifecycle: install, apply Bedrock managed state, become ready, then terminate cleanly.
 docker run -d \
   --name "${container_name}" \
   "${common_args[@]}" \
   -e ENABLE_RCON=false \
   -e READY_DELAY=1 \
+  -e LEVEL_NAME='Test World' \
+  -e BDS_ALLOWLIST_JSON='[{"name":"FixturePlayer","ignoresPlayerLimit":true}]' \
+  -e BDS_PERMISSIONS_JSON='[{"xuid":"123456789","permission":"operator"}]' \
+  -e WORLD_PACKS_BINDING_ENABLED=true \
+  -v "${tmp_dir}/behavior-input:/behavior_packs:ro" \
+  -v "${tmp_dir}/resource-input:/resource_packs:ro" \
   -v "${tmp_dir}/runtime-data:/data" \
   "${image}" >/dev/null
 
@@ -177,6 +227,34 @@ marker="${tmp_dir}/runtime-data/.bds-install.json"
   printf 'managed BDS install marker has wrong resolved version\n' >&2
   exit 1
 }
+
+jq -e '
+  length == 1
+  and .[0].name == "FixturePlayer"
+  and .[0].ignoresPlayerLimit == true
+' "${tmp_dir}/runtime-data/allowlist.json" >/dev/null \
+  || { printf 'managed allowlist was not applied in the real container lifecycle\n' >&2; exit 1; }
+
+jq -e '
+  length == 1
+  and .[0].xuid == "123456789"
+  and .[0].permission == "operator"
+' "${tmp_dir}/runtime-data/permissions.json" >/dev/null \
+  || { printf 'managed permissions were not applied in the real container lifecycle\n' >&2; exit 1; }
+
+jq -e '
+  length == 1
+  and .[0].pack_id == "33333333-3333-4333-8333-333333333333"
+  and .[0].version == [1,0,0]
+' "${tmp_dir}/runtime-data/worlds/Test World/world_behavior_packs.json" >/dev/null \
+  || { printf 'managed behavior pack was not bound in the real container lifecycle\n' >&2; exit 1; }
+
+jq -e '
+  length == 1
+  and .[0].pack_id == "44444444-4444-4444-8444-444444444444"
+  and .[0].version == [2,0,0]
+' "${tmp_dir}/runtime-data/worlds/Test World/world_resource_packs.json" >/dev/null \
+  || { printf 'managed resource pack was not bound in the real container lifecycle\n' >&2; exit 1; }
 
 [[ -f "${tmp_dir}/runtime-data/.ready" ]] || {
   printf 'readiness file was not created\n' >&2
