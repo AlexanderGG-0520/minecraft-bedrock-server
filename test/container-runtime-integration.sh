@@ -82,6 +82,8 @@ printf 'image default identity=%s\n' "${runtime_identity}"
 }
 
 docker run --rm --entrypoint /bin/bash "${image}" -lc '
+  test -w /behavior_packs
+  test -w /resource_packs
   printf "entrypoint sha256="
   sha256sum /usr/local/bin/docker-entrypoint.sh | awk "{print \$1}"
   printf "filesystem module sha256="
@@ -180,7 +182,6 @@ marker="${tmp_dir}/runtime-data/.bds-install.json"
   printf 'readiness file was not created\n' >&2
   exit 1
 }
-
 docker stop -t 10 "${container_name}" >/dev/null
 
 exit_code="$(docker inspect -f '{{.State.ExitCode}}' "${container_name}")"
