@@ -9,18 +9,33 @@ player_access_state_marker() {
   printf '%s/%s.json\n' "$(player_access_state_dir)" "${kind}"
 }
 
-validate_player_access_state_marker() {
+validate_player_access_state_marker_current() {
   local marker="$1"
   local kind="$2"
 
   jq -e --arg kind "${kind}" '
     type == "object"
-    and .schema_version == 1
+    and .schema_version == 2
+    and .state_type == "player-access"
     and .kind == $kind
     and (.managed_keys | type == "array")
     and all(.managed_keys[]; type == "string" and length > 0)
-  ' "${marker}" >/dev/null 2>&1 \
-    || die "Invalid/corrupt managed player-access marker: ${marker}"
+    and ((.managed_keys | length) == (.managed_keys | unique | length))
+  ' "${marker}" >/dev/null 2>&1
+}
+
+validate_player_access_state_marker() {
+  local marker="$1"
+  local kind="$2"
+
+  managed_state_ensure_current \
+    "${marker}" \
+    player-access \
+    validate_player_access_state_marker_current \
+    managed_state_migrate_envelope \
+    "managed player-access ${kind} marker" \
+    "${MANAGED_STATE_SCHEMA_VERSION}" \
+    "${kind}"
 }
 
 load_player_access_source() {
@@ -114,8 +129,12 @@ prepare_player_access_marker() {
   tmp="$(mktemp "${marker_dir}/.${kind}.json.tmp.XXXXXX")" \
     || die "Failed to create managed ${kind} marker temporary file"
 
-  if ! jq -n --arg kind "${kind}" --slurpfile keys "${keys_file}" \
-    '{schema_version:1,kind:$kind,managed_keys:$keys[0]}' > "${tmp}"; then
+  if ! jq -n \
+    --argjson schema_version "${MANAGED_STATE_SCHEMA_VERSION}" \
+    --arg state_type "player-access" \
+    --arg kind "${kind}" \
+    --slurpfile keys "${keys_file}" \
+    '{schema_version:$schema_version,state_type:$state_type,kind:$kind,managed_keys:$keys[0]}' > "${tmp}"; then
     safe_rm_f "${tmp}" || true
     die "Failed to build managed ${kind} marker"
   fi
