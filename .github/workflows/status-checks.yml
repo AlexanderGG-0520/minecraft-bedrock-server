@@ -73,6 +73,9 @@ jobs:
       - name: Run container lifecycle integration
         run: bash test/container-runtime-integration.sh minecraft-bedrock-server:ci-latest
 
+      - name: Run persistent state transition matrix
+        run: bash test/persistent-state-transition-integration.sh minecraft-bedrock-server:ci-latest
+
       - name: Build stable target
         run: |
           docker build \
