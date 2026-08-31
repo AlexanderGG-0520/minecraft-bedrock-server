@@ -8,6 +8,7 @@ source "${ROOT_DIR}/entrypoint.sh"
 required_functions=(
   initialize_config
   preflight
+  run_phase_hooks
   managed_state_ensure_current
   install_bds
   install_world_zip_from_s3
