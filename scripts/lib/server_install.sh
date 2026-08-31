@@ -261,6 +261,7 @@ install_bds() {
 
   log INFO "Installing BDS into ${DATA_DIR} (preserving worlds/ and key configs)"
   rsync -a \
+    --checksum \
     --no-owner \
     --no-group \
     --no-perms \
