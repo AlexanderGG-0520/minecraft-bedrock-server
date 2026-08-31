@@ -1,8 +1,8 @@
 # Architecture
 
-This document describes the responsibility boundaries of the Bedrock server runtime.
+This document defines the responsibility and state-ownership boundaries of the Minecraft Bedrock server runtime.
 
-The goal is not to reproduce Minecartainer file-for-file. The goal is to give Minecraft Bedrock Dedicated Server the same kind of explicit lifecycle boundaries so future features can be added without turning the entrypoint back into a monolith.
+The goal is not to reproduce Minecartainer file-for-file. The goal is to give Bedrock Dedicated Server the same class of lifecycle rigor: disposable compute, long-lived state, explicit ownership, guarded destructive transitions, and regression-tested orchestration.
 
 ## Core rule
 
@@ -12,36 +12,38 @@ It may:
 
 - locate and source runtime modules;
 - initialize configuration;
-- install process signal handlers;
+- install signal handlers;
 - dispatch command modes;
 - invoke preflight and the top-level lifecycle.
 
-It should not accumulate implementation details for BDS installation, S3 delivery, world mutation, property editing, RCON, or shutdown policy.
+It must not accumulate BDS installation, S3 delivery, world mutation, pack ownership, property editing, RCON, or shutdown policy.
 
-## Current modules
+## Module boundaries
 
 | Module | Responsibility |
 | --- | --- |
-| `logging.sh` | Structured runtime logging and fatal errors |
-| `common.sh` | Small generic predicates and validation helpers |
+| `logging.sh` | Runtime logging and fatal errors |
+| `common.sh` | Generic predicates and validation helpers |
 | `config.sh` | Environment defaults and the `server.properties` mapping contract |
-| `filesystem.sh` | `/data` preparation, EULA file, atomic directory activation, ownership repair |
-| `preflight.sh` | Validate deployment configuration before lifecycle mutation/startup |
-| `s3_client.sh` | Configure the S3-compatible MinIO client |
-| `content_assets.sh` | Fetch and activate behavior/resource packs |
-| `server_install.sh` | Resolve, download, install, and validate the BDS executable/runtime files |
+| `filesystem.sh` | Safe path operations, `/data` preparation, atomic directory transitions, ownership repair, privilege drop |
+| `content_state.sh` | Ownership metadata and ownership-aware activation for externally supplied pack content |
+| `preflight.sh` | Validate configuration before persistent-state mutation or runtime launch |
+| `lifecycle.sh` | Bounded pre/post install and pre-runtime hooks |
+| `s3_client.sh` | Configure S3-compatible MinIO `mc` access |
+| `content_assets.sh` | Fetch behavior/resource packs and delegate activation to managed-content policy |
+| `server_install.sh` | Resolve, download, install, adopt, and validate managed BDS installation state |
 | `server_properties.sh` | Apply supported environment overrides to `server.properties` |
-| `world_install.sh` | Bootstrap worlds from an external archive |
-| `rcon.sh` | Execute RCON commands and serialize the stop request |
-| `shutdown.sh` | Bounded graceful termination and process-signal fallbacks |
-| `runtime.sh` | Ready state, privilege drop, process launch, and health checks |
-| `install_phase.sh` | Orchestrate installation responsibilities in their required order |
-| `runtime_phase.sh` | Orchestrate install followed by runtime |
-| `command_mode.sh` | CLI-style command dispatch without embedding feature implementations |
+| `world_install.sh` | Validate, fingerprint, and atomically bootstrap/replace worlds from an external archive |
+| `rcon.sh` | Execute RCON commands, startup commands, and serialize stop requests |
+| `shutdown.sh` | Bounded graceful termination and signal fallbacks |
+| `runtime.sh` | Server process launch, readiness state, runtime health, and process waiting |
+| `install_phase.sh` | Orchestrate installation responsibilities in required order |
+| `runtime_phase.sh` | Orchestrate install-only or install-then-runtime behavior |
+| `command_mode.sh` | CLI-style command dispatch |
 
 ## Dependency direction
 
-The intended dependency direction is:
+The intended direction is:
 
 ```text
 entrypoint.sh
@@ -50,84 +52,170 @@ entrypoint.sh
           -> common infrastructure helpers
 ```
 
-Feature modules should not call the entrypoint. Infrastructure helpers should not know about lifecycle ordering.
+Feature modules do not call the entrypoint. Infrastructure helpers do not decide lifecycle order.
 
 For example:
 
-- `install_phase.sh` knows that a world bootstrap happens after BDS installation;
-- `world_install.sh` knows how to install a world, but not when startup should call it;
-- `s3_client.sh` knows how to configure object-storage access, but not which assets should exist;
-- `shutdown.sh` owns termination policy while `rcon.sh` only owns Minecraft-level control requests.
+- `install_phase.sh` knows when BDS, worlds, packs, and properties are installed;
+- `server_install.sh` knows how BDS managed state transitions work but not when runtime launches;
+- `content_assets.sh` knows how pack inputs are obtained but not which operator-owned active entries may be deleted;
+- `content_state.sh` owns that deletion/ownership policy;
+- `shutdown.sh` owns termination policy while `rcon.sh` owns application-level control requests.
 
-## Persistent-state boundary
+## Persistent-state model
 
 `/data` is long-lived state and may survive many container or Pod replacements.
 
-Future changes that can delete, replace, or reinterpret data under `/data` must therefore be designed as explicit state transitions. The module split is a prerequisite for that work; it is not itself sufficient protection.
+The runtime therefore distinguishes between different classes of state instead of treating `/data` as one mutable directory.
 
-The next state-safety layer should add managed installation metadata and ownership information so the runtime can distinguish:
+### Managed BDS installation
 
-- files managed by this image;
-- operator-owned files;
-- externally delivered assets;
-- persistent world state;
-- incompatible requested state that should fail rather than be guessed.
+The primary marker is:
 
-## Compatibility rule for this refactor
+```text
+/data/.bds-install.json
+```
 
-The initial modularization is intentionally behavior-preserving.
+It records:
 
-It does not add new lifecycle features. Existing environment variables, command modes, install order, default RCON policy, BDS version resolution, S3 bootstrap behavior, property overrides, health checks, and shutdown fallbacks remain the compatibility contract.
+- marker schema version;
+- managed artifact identity;
+- installation mode (`latest`, `stable`, explicit version, or custom URL);
+- requested version;
+- resolved version;
+- download-source fingerprint.
 
-Feature work should be reviewed separately after the modular boundary is established.
+`.bds-version` is retained for compatibility and legacy-state adoption, but it is no longer the sole source of truth.
 
-## Target: Minecartainer-class operational capabilities
+Pinned/custom managed state is not silently replaced when the requested state changes. `FORCE_REINSTALL=true` is required for an intentional incompatible replacement. Floating `latest` and `stable` channels may update within the same managed mode.
 
-"Minecartainer-class" means comparable operational rigor, not identical Java Edition features.
+### Managed pack ownership
 
-Java-specific concepts such as JVM tuning, Java server types, Java mod loaders, or Java modpack providers do not belong in the Bedrock runtime merely for parity.
+Behavior/resource pack ownership is recorded below:
 
-The Bedrock roadmap should instead converge on equivalent operational capabilities:
+```text
+/data/.managed/content-assets/
+```
 
-1. **Managed BDS installation state**
-   - structured install marker instead of relying only on `.bds-version`;
-   - requested/resolved version and artifact/source identity;
-   - explicit mismatch detection and guarded force-reinstall behavior.
+The active directories may contain both runtime-managed and operator-owned top-level entries.
 
-2. **First-class lifecycle modes**
-   - install-only operation for PVC pre-warming and Kubernetes Jobs;
-   - explicit install/runtime boundary exposed through command mode;
-   - lifecycle hooks with bounded execution and strict/non-strict policy.
+`*_REMOVE_EXTRA=true` does not grant permission to delete arbitrary active content. It removes only stale entries previously recorded as managed by this runtime. Unowned operator entries remain outside that deletion set.
 
-3. **Filesystem and archive safety**
-   - safe path helpers for destructive operations;
-   - archive path validation before world extraction;
-   - transactional temporary-file handling and cleanup.
+When `*_REMOVE_EXTRA=false`, previously managed entries that disappear from the current input remain active and remain recorded as managed, allowing a later explicit remove-extra transition to clean them up safely.
 
-4. **Managed content ownership**
-   - distinguish image-managed/external pack content from operator content;
-   - make destructive `remove-extra` behavior ownership-aware rather than directory-authoritative by default;
-   - support local immutable inputs and S3-compatible sources through one policy boundary.
+### Managed world source
 
-5. **World lifecycle policy**
-   - explicit install/import semantics;
-   - guarded reset/replacement behavior;
-   - source conflict detection and safer extraction/activation.
+When a world archive is installed from S3-compatible storage, the runtime records:
 
-6. **Bedrock configuration/state management**
-   - stronger `server.properties` bootstrap and override validation;
-   - explicit allowlist/permissions management where useful;
-   - Bedrock-native behavior/resource-pack deployment workflows.
+```text
+/data/.managed/world-source.json
+```
 
-7. **RCON and shutdown lifecycle**
-   - validated shutdown budget;
-   - startup/control command support where useful;
-   - stronger Kubernetes preStop/termination contract tests.
+The marker contains a source fingerprint and the installed archive SHA-256.
 
-8. **Regression and runtime verification**
-   - unit-like shell smoke tests per module boundary;
-   - container runtime smoke tests;
-   - persistent-volume restart/reinstall tests;
-   - Kubernetes examples and lifecycle regression coverage.
+With `WORLD_INSTALL_ONCE=true`, existing worlds are preserved even if the configured source later changes; a source drift warning is emitted when the existing world has managed source metadata.
 
-The order matters: state ownership and lifecycle contracts should be established before adding broad automation.
+Replacing an existing world requires both:
+
+```text
+WORLD_INSTALL_ONCE=false
+WORLD_REPLACE=true
+```
+
+This makes replacement an explicit destructive transition rather than an accidental consequence of changing one bootstrap flag.
+
+## Lifecycle
+
+Normal runtime:
+
+```text
+preflight
+  -> optional ownership repair
+  -> privilege drop
+  -> pre-install hooks
+  -> install phase
+  -> post-install hooks
+  -> pre-runtime hooks
+  -> launch BDS
+  -> optional RCON startup commands
+  -> readiness
+  -> graceful shutdown / signal fallback
+```
+
+Install-only runtime:
+
+```text
+preflight
+  -> optional ownership repair
+  -> privilege drop
+  -> pre-install hooks
+  -> install phase
+  -> post-install hooks
+  -> exit 0
+```
+
+Runtime-only requirements such as an RCON credential are not required by install-only mode.
+
+Hooks execute from:
+
+```text
+/hooks/pre-install.d/
+/hooks/post-install.d/
+/hooks/pre-runtime.d/
+```
+
+when `HOOKS_ENABLED=true`. Hook failures are fatal by default and may be bounded with `HOOKS_TIMEOUT_SEC`.
+
+## Filesystem safety rules
+
+Destructive helpers reject empty/root filesystem paths.
+
+Directory activation uses staging plus rename rather than mutating active directories file-by-file where possible.
+
+World archives are validated before extraction for:
+
+- ZIP integrity;
+- absolute paths;
+- `..` traversal;
+- symbolic-link entries.
+
+An empty pack input does not replace an existing active pack directory.
+
+## Readiness and shutdown
+
+Readiness is runtime state, not install state.
+
+`/data/.ready` is created only after:
+
+- the BDS process has remained alive through `READY_DELAY`; and
+- configured `RCON_CMDS_STARTUP` commands have completed successfully.
+
+The readiness file is removed when the process exits or shutdown begins.
+
+Shutdown attempts application-level RCON stop first when enabled, then uses bounded process-signal fallbacks. Duplicate RCON stop paths are serialized with an ephemeral lock outside the PVC.
+
+## Regression boundary
+
+The required status workflow covers four layers:
+
+1. Bash syntax and ShellCheck;
+2. module-level lifecycle/state smoke tests;
+3. Docker builds for latest and stable targets;
+4. an actual container lifecycle integration using a local fake BDS ELF fixture.
+
+The container integration verifies install-only, managed install metadata, runtime readiness, healthcheck behavior, signal termination, and readiness cleanup without depending on Mojang's live BDS download service.
+
+## Remaining Minecartainer-class work
+
+The major architectural groundwork is now present. Remaining work is primarily Bedrock-specific capability expansion rather than another monolithic refactor.
+
+Useful next areas include:
+
+- explicit allowlist/permissions GitOps management with a clearly defined ownership policy;
+- Bedrock-native world behavior/resource pack binding workflows;
+- richer S3 source/cache ownership metadata and source-conflict diagnostics;
+- persistent-volume upgrade/reinstall matrix tests across more managed-state transitions;
+- Kubernetes examples for install-only Jobs, hooks, and guarded world replacement;
+- additional shutdown/RCON integration cases using a controllable test server.
+
+The standard remains the same: add automation only after its state ownership and destructive boundaries are explicit.
