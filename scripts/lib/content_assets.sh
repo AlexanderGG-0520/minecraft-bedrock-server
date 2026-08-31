@@ -32,7 +32,7 @@ install_behaviorpacks() {
 }
 
 activate_behaviorpacks() {
-  activate_dir_atomic \
+  activate_managed_content \
     "${INPUT_BEHAVIORPACKS_DIR}" \
     "${DATA_DIR}/behavior_packs" \
     "behavior_packs" \
@@ -71,7 +71,7 @@ install_resourcepacks() {
 }
 
 activate_resourcepacks() {
-  activate_dir_atomic \
+  activate_managed_content \
     "${INPUT_RESOURCEPACKS_DIR}" \
     "${DATA_DIR}/resource_packs" \
     "resource_packs" \
