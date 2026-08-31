@@ -14,6 +14,8 @@ install() {
   install_resourcepacks
   activate_resourcepacks
   apply_server_properties_from_env
+  manage_player_access
+  bind_managed_world_packs
 
   run_phase_hooks "post-install"
   log INFO "Install phase completed"
