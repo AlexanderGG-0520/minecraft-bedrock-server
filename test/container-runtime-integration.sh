@@ -6,8 +6,24 @@ tmp_dir="$(mktemp -d)"
 container_name="bedrock-runtime-smoke-${RANDOM}-${RANDOM}"
 
 cleanup() {
+  local status=$?
+
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
-  rm -rf -- "${tmp_dir}"
+
+  if ! rm -rf -- "${tmp_dir}" 2>/dev/null; then
+    docker run --rm \
+      --user 0:0 \
+      -e HOST_UID="$(id -u)" \
+      -e HOST_GID="$(id -g)" \
+      -v "${tmp_dir}:/cleanup" \
+      --entrypoint /bin/sh \
+      "${image}" \
+      -c 'chown -R "${HOST_UID}:${HOST_GID}" /cleanup' \
+      >/dev/null 2>&1 || true
+    rm -rf -- "${tmp_dir}" 2>/dev/null || true
+  fi
+
+  return "${status}"
 }
 trap cleanup EXIT
 
