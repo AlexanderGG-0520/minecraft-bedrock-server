@@ -30,23 +30,37 @@ collect_top_level_entries() {
   done < <(find "${directory}" -mindepth 1 -maxdepth 1 -print0 | sort -z)
 }
 
-validate_content_state_marker() {
+validate_content_state_marker_current() {
   local marker="$1"
 
   jq -e '
     type == "object"
-    and .schema_version == 1
+    and .schema_version == 2
+    and .state_type == "content-assets"
     and (.name | type == "string" and length > 0)
     and (.managed_entries | type == "array")
-    and all(.managed_entries[]; type == "string" and length > 0)
-  ' "${marker}" >/dev/null 2>&1 \
-    || die "Invalid/corrupt managed content marker: ${marker}"
+    and all(.managed_entries[];
+      type == "string"
+      and length > 0
+      and . != "."
+      and . != ".."
+      and (contains("/") | not)
+      and (contains("\n") | not)
+      and (contains("\r") | not)
+    )
+    and ((.managed_entries | length) == (.managed_entries | unique | length))
+  ' "${marker}" >/dev/null 2>&1
+}
 
-  local entry
-  while IFS= read -r entry; do
-    validate_managed_entry_name "${entry}" \
-      || die "Unsafe entry in managed content marker: ${marker}"
-  done < <(jq -r '.managed_entries[]' "${marker}")
+validate_content_state_marker() {
+  local marker="$1"
+
+  managed_state_ensure_current \
+    "${marker}" \
+    content-assets \
+    validate_content_state_marker_current \
+    managed_state_migrate_envelope \
+    'managed content marker'
 }
 
 read_managed_content_entries() {
@@ -84,11 +98,14 @@ prepare_content_state_marker() {
     || die "Failed to create managed content marker temporary file"
 
   if ! printf '%s\n' "${entries[@]}" \
-    | jq -R -s --arg name "${name}" '
+    | jq -R -s \
+        --argjson schema_version "${MANAGED_STATE_SCHEMA_VERSION}" \
+        --arg state_type "content-assets" \
+        --arg name "${name}" '
         split("\n")
         | map(select(length > 0))
         | unique
-        | {schema_version:1,name:$name,managed_entries:.}
+        | {schema_version:$schema_version,state_type:$state_type,name:$name,managed_entries:.}
       ' > "${tmp}"; then
     safe_rm_f "${tmp}" || true
     die "Failed to build managed content marker for ${name}"
