@@ -29,6 +29,13 @@ validate_nonnegative_int() {
   [[ "${value}" =~ ^[0-9]+$ ]] || die "${name} must be a non-negative integer (got: ${value})"
 }
 
+validate_positive_int() {
+  local name="$1"
+  local value="$2"
+  [[ "${value}" =~ ^[0-9]+$ ]] && (( value > 0 )) \
+    || die "${name} must be a positive integer (got: ${value})"
+}
+
 validate_boolean() {
   local name="$1"
   local value="${2,,}"
