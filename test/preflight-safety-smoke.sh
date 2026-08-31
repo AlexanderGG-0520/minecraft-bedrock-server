@@ -13,6 +13,18 @@ base_config() {
   mkdir -p "${DATA_DIR}"
   EULA=true
   initialize_config
+
+  BDS_CHANNEL=latest
+  BDS_STABLE_VERSION=""
+  BDS_DOWNLOAD_URL=""
+  INSTALL_ONLY=false
+  ENABLE_RCON=false
+  RCON_PASSWORD=""
+  RCON_RETRIES=5
+  RCON_RETRY_DELAY=1
+  RCON_TIMEOUT=5
+  SHUTDOWN_WAIT_TIMEOUT=60
+  SHUTDOWN_TERM_WAIT=10
 }
 
 base_config
@@ -31,8 +43,6 @@ if (preflight >/dev/null 2>&1); then
 fi
 
 base_config
-INSTALL_ONLY=false
-ENABLE_RCON=false
 RCON_RETRIES=0
 if (preflight >/dev/null 2>&1); then
   printf 'preflight accepted RCON_RETRIES=0\n' >&2
@@ -40,8 +50,6 @@ if (preflight >/dev/null 2>&1); then
 fi
 
 base_config
-INSTALL_ONLY=false
-ENABLE_RCON=false
 RCON_TIMEOUT=0
 if (preflight >/dev/null 2>&1); then
   printf 'preflight accepted RCON_TIMEOUT=0\n' >&2
@@ -49,8 +57,6 @@ if (preflight >/dev/null 2>&1); then
 fi
 
 base_config
-INSTALL_ONLY=false
-ENABLE_RCON=false
 BDS_CHANNEL=invalid
 if (preflight >/dev/null 2>&1); then
   printf 'preflight accepted invalid BDS_CHANNEL\n' >&2
