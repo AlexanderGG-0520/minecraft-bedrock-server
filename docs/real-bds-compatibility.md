@@ -16,11 +16,17 @@ real-bds-compatibility.yml
 
 The two layers have different failure domains and must remain separate.
 
-## Schedule and manual runs
+## Triggers and manual runs
 
-`.github/workflows/real-bds-compatibility.yml` runs on Monday and Thursday and can also be started manually with `workflow_dispatch`.
+`.github/workflows/real-bds-compatibility.yml` runs:
 
-Scheduled runs test:
+- after runtime-affecting changes are pushed to `main`;
+- on Monday and Thursday as a periodic upstream compatibility check;
+- manually through `workflow_dispatch`.
+
+The `main` push trigger is path-scoped to the Docker/runtime implementation and the compatibility harness itself. It gives a newly merged runtime change an immediate real-BDS result without making the external check a prerequisite for merging that pull request.
+
+Automatic runs test:
 
 ```text
 VERSION=latest
@@ -30,7 +36,7 @@ A manual run may provide an explicit BDS version. This is useful when reproducin
 
 The workflow is deliberately not a required pull-request status check. Mojang download availability, CDN incidents, website changes, or transient internet failures must not make unrelated repository changes unmergeable.
 
-A failed periodic run is still actionable: determine whether the failure is an upstream availability problem, a resolver incompatibility, a native-library incompatibility, or a lifecycle regression.
+A failed compatibility run is still actionable: determine whether the failure is an upstream availability problem, a resolver incompatibility, a native-library incompatibility, or a lifecycle regression.
 
 ## What the real-BDS harness proves
 
