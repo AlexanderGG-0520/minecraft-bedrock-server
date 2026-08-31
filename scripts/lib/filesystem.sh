@@ -59,8 +59,6 @@ install_dirs() {
     "${DATA_DIR}/worlds" \
     "${DATA_DIR}/behavior_packs" \
     "${DATA_DIR}/resource_packs"
-
-  mkdir -p "${INPUT_BEHAVIORPACKS_DIR}" "${INPUT_RESOURCEPACKS_DIR}" || true
 }
 
 install_eula() {
