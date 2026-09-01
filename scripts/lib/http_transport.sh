@@ -1,10 +1,26 @@
 # shellcheck shell=bash
 
-HTTP_DOWNLOAD_ATTEMPTS="${HTTP_DOWNLOAD_ATTEMPTS:-2}"
-HTTP_DOWNLOAD_CONNECT_TIMEOUT_SEC="${HTTP_DOWNLOAD_CONNECT_TIMEOUT_SEC:-15}"
-HTTP_DOWNLOAD_MAX_TIME_SEC="${HTTP_DOWNLOAD_MAX_TIME_SEC:-120}"
-HTTP_DOWNLOAD_STALL_TIME_SEC="${HTTP_DOWNLOAD_STALL_TIME_SEC:-60}"
-HTTP_DOWNLOAD_RETRY_DELAY_SEC="${HTTP_DOWNLOAD_RETRY_DELAY_SEC:-2}"
+# Internal transport policy. These are intentionally not user configuration:
+# every HTTP artifact attempt must remain bounded so an upstream stall cannot
+# consume the entire container/workflow lifetime.
+HTTP_DOWNLOAD_ATTEMPTS=2
+HTTP_DOWNLOAD_CONNECT_TIMEOUT_SEC=15
+HTTP_DOWNLOAD_MAX_TIME_SEC=120
+HTTP_DOWNLOAD_STALL_TIME_SEC=60
+HTTP_DOWNLOAD_RETRY_DELAY_SEC=2
+
+http_download_prefers_http1() {
+  local url="$1"
+
+  case "${url}" in
+    https://www.minecraft.net/bedrockdedicatedserver/*|https://minecraft.net/bedrockdedicatedserver/*|https://minecraft.azureedge.net/bin-linux/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 http_download_with_transport() {
   local curl_bin="$1"
@@ -44,15 +60,17 @@ http_download_with_transport() {
 }
 
 # Keep curl's ordinary behavior for API/stdout calls and non-HTTP sources.
-# HTTP(S) downloads written to a file use explicit bounded attempts and then a
-# second set of bounded attempts over HTTP/1.1. This protects BDS artifact
-# installation from transient HTTP/2/CDN failures and from connections that
-# stay alive without transferring data.
+# HTTP(S) downloads written to a file use two explicitly bounded transport
+# passes. Known official BDS hosts prefer HTTP/1.1 because their HTTP/2 path has
+# produced INTERNAL_ERROR/stalled transfers in real compatibility CI. Other
+# sources retain curl's default transport first and use HTTP/1.1 as fallback.
 curl() {
   local curl_bin="${HTTP_CURL_BIN:-curl}"
   local -a args=("$@")
   local output=""
   local url=""
+  local primary_http1=false
+  local secondary_http1=true
   local i arg
 
   for ((i = 0; i < ${#args[@]}; i++)); do
@@ -80,12 +98,22 @@ curl() {
     return
   fi
 
+  if http_download_prefers_http1 "${url}"; then
+    primary_http1=true
+    secondary_http1=false
+  fi
+
   if http_download_with_transport \
-    "${curl_bin}" "${output}" "${url}" false "${args[@]}"; then
+    "${curl_bin}" "${output}" "${url}" "${primary_http1}" "${args[@]}"; then
     return 0
   fi
 
-  log WARN "HTTP download failed with the default transport; retrying over HTTP/1.1: ${url}"
+  if [[ "${secondary_http1}" == true ]]; then
+    log WARN "HTTP download failed with the default transport; retrying over HTTP/1.1: ${url}"
+  else
+    log WARN "HTTP/1.1 download failed for official BDS artifact; retrying with curl's default transport: ${url}"
+  fi
+
   http_download_with_transport \
-    "${curl_bin}" "${output}" "${url}" true "${args[@]}"
+    "${curl_bin}" "${output}" "${url}" "${secondary_http1}" "${args[@]}"
 }
