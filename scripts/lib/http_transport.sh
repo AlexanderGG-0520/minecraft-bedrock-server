@@ -39,8 +39,10 @@ http_download_with_transport() {
 
   for ((attempt = 1; attempt <= HTTP_DOWNLOAD_ATTEMPTS; attempt++)); do
     # Never let a failed/partial transfer contaminate a later retry.
-    : > "${output}" || return 1
-
+    if ! : > "${output}"; then
+      log ERROR "Failed to truncate HTTP download output: ${output}"
+      return 2
+    fi
     if command "${curl_bin}" \
       "${protocol_args[@]}" \
       --connect-timeout "${HTTP_DOWNLOAD_CONNECT_TIMEOUT_SEC}" \
