@@ -42,38 +42,62 @@ done
 [[ -n "${output}" ]] || exit 2
 
 if [[ "${http1}" == true ]]; then
-  printf 'complete-payload\n' > "${output}"
+  # Append deliberately: the wrapper must truncate a previous partial payload
+  # before switching transports or this assertion will expose contamination.
+  printf 'complete-payload\n' >> "${output}"
   exit 0
 fi
 
-printf 'partial-payload\n' > "${output}"
+printf 'partial-payload\n' >> "${output}"
 exit 92
 EOF
 chmod +x "${fake_curl}"
 
 HTTP_CURL_BIN="${fake_curl}"
 HTTP_TEST_LOG="${log_file}"
+HTTP_DOWNLOAD_RETRY_DELAY_SEC=0
 export HTTP_CURL_BIN HTTP_TEST_LOG
 
 curl -fL 'https://example.invalid/bedrock-server.zip' -o "${output_file}"
 
 [[ "$(cat "${output_file}")" == 'complete-payload' ]] || {
-  printf 'HTTP/1.1 fallback did not replace the partial download\n' >&2
+  printf 'HTTP/1.1 fallback did not replace partial download state\n' >&2
+  cat "${output_file}" >&2 || true
   exit 1
 }
-[[ "$(wc -l < "${log_file}")" == "2" ]] || {
-  printf 'expected one primary attempt and one HTTP/1.1 fallback\n' >&2
+[[ "$(wc -l < "${log_file}")" == "3" ]] || {
+  printf 'expected two primary attempts and one successful HTTP/1.1 fallback\n' >&2
   cat "${log_file}" >&2
   exit 1
 }
-grep -q -- '--retry-all-errors' "${log_file}" || {
-  printf 'HTTP download did not enable retry-all-errors\n' >&2
+
+head -n2 "${log_file}" | grep -q -- '--http1.1' && {
+  printf 'primary attempts unexpectedly forced HTTP/1.1\n' >&2
   exit 1
 }
 tail -n1 "${log_file}" | grep -q -- '--http1.1' || {
   printf 'fallback attempt did not force HTTP/1.1\n' >&2
   exit 1
 }
+
+while IFS= read -r call; do
+  grep -q -- '--connect-timeout 15' <<<"${call}" || {
+    printf 'HTTP attempt is missing the connect timeout\n' >&2
+    exit 1
+  }
+  grep -q -- '--max-time 120' <<<"${call}" || {
+    printf 'HTTP attempt is missing the hard transfer timeout\n' >&2
+    exit 1
+  }
+  grep -q -- '--speed-limit 1' <<<"${call}" || {
+    printf 'HTTP attempt is missing the stalled-transfer speed limit\n' >&2
+    exit 1
+  }
+  grep -q -- '--speed-time 60' <<<"${call}" || {
+    printf 'HTTP attempt is missing the stalled-transfer timeout\n' >&2
+    exit 1
+  }
+done < "${log_file}"
 
 : > "${log_file}"
 if curl -fL 'file:///fixture/missing.zip' -o "${output_file}" >/dev/null 2>&1; then
@@ -85,8 +109,8 @@ fi
   cat "${log_file}" >&2
   exit 1
 }
-if grep -q -- '--retry-all-errors\|--http1.1' "${log_file}"; then
-  printf 'non-HTTP curl call received HTTP transport flags\n' >&2
+if grep -q -- '--connect-timeout\|--max-time\|--speed-limit\|--speed-time\|--http1.1' "${log_file}"; then
+  printf 'non-HTTP curl call received HTTP transport controls\n' >&2
   cat "${log_file}" >&2
   exit 1
 fi
