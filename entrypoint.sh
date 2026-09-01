@@ -17,6 +17,8 @@ fi
 source "${LIB_DIR}/logging.sh"
 # shellcheck source=scripts/lib/common.sh
 source "${LIB_DIR}/common.sh"
+# shellcheck source=scripts/lib/http_transport.sh
+source "${LIB_DIR}/http_transport.sh"
 # shellcheck source=scripts/lib/config.sh
 source "${LIB_DIR}/config.sh"
 # shellcheck source=scripts/lib/filesystem.sh
