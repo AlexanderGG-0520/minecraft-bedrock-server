@@ -1,11 +1,12 @@
 # shellcheck shell=bash
 
-# Internal transport policy. These are intentionally not user configuration:
-# every HTTP artifact attempt must remain bounded so an upstream stall cannot
-# consume the entire container/workflow lifetime.
+# Internal transport policy. These are intentionally not user configuration.
+# A transfer that stops making meaningful progress must fail quickly enough for
+# another transport to be tried, while a legitimately slow but progressing BDS
+# download is not constrained by an arbitrary total wall-clock deadline.
 HTTP_DOWNLOAD_ATTEMPTS=2
 HTTP_DOWNLOAD_CONNECT_TIMEOUT_SEC=15
-HTTP_DOWNLOAD_MAX_TIME_SEC=120
+HTTP_DOWNLOAD_STALL_LIMIT_BPS=1024
 HTTP_DOWNLOAD_STALL_TIME_SEC=60
 HTTP_DOWNLOAD_RETRY_DELAY_SEC=2
 
@@ -43,15 +44,14 @@ http_download_with_transport() {
     if command "${curl_bin}" \
       "${protocol_args[@]}" \
       --connect-timeout "${HTTP_DOWNLOAD_CONNECT_TIMEOUT_SEC}" \
-      --max-time "${HTTP_DOWNLOAD_MAX_TIME_SEC}" \
-      --speed-limit 1 \
+      --speed-limit "${HTTP_DOWNLOAD_STALL_LIMIT_BPS}" \
       --speed-time "${HTTP_DOWNLOAD_STALL_TIME_SEC}" \
       "${args[@]}"; then
       return 0
     fi
 
     if (( attempt < HTTP_DOWNLOAD_ATTEMPTS )); then
-      log WARN "HTTP download attempt ${attempt}/${HTTP_DOWNLOAD_ATTEMPTS} failed; retrying: ${url}"
+      log WARN "HTTP download attempt ${attempt}/${HTTP_DOWNLOAD_ATTEMPTS} failed or stalled; retrying: ${url}"
       sleep "${HTTP_DOWNLOAD_RETRY_DELAY_SEC}"
     fi
   done
@@ -60,7 +60,7 @@ http_download_with_transport() {
 }
 
 # Keep curl's ordinary behavior for API/stdout calls and non-HTTP sources.
-# HTTP(S) downloads written to a file use two explicitly bounded transport
+# HTTP(S) downloads written to a file use two progress-bounded transport
 # passes. Known official BDS hosts prefer HTTP/1.1 because their HTTP/2 path has
 # produced INTERNAL_ERROR/stalled transfers in real compatibility CI. Other
 # sources retain curl's default transport first and use HTTP/1.1 as fallback.
