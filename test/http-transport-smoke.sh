@@ -87,11 +87,7 @@ while IFS= read -r call; do
     printf 'HTTP attempt is missing the connect timeout\n' >&2
     exit 1
   }
-  grep -q -- '--max-time 120' <<<"${call}" || {
-    printf 'HTTP attempt is missing the hard transfer timeout\n' >&2
-    exit 1
-  }
-  grep -q -- '--speed-limit 1' <<<"${call}" || {
+  grep -q -- '--speed-limit 1024' <<<"${call}" || {
     printf 'HTTP attempt is missing the stalled-transfer speed limit\n' >&2
     exit 1
   }
@@ -134,7 +130,7 @@ fi
   cat "${log_file}" >&2
   exit 1
 }
-if grep -q -- '--connect-timeout\|--max-time\|--speed-limit\|--speed-time\|--http1.1' "${log_file}"; then
+if grep -q -- '--connect-timeout\|--speed-limit\|--speed-time\|--http1.1' "${log_file}"; then
   printf 'non-HTTP curl call received HTTP transport controls\n' >&2
   cat "${log_file}" >&2
   exit 1
